@@ -26,9 +26,9 @@ No real hardware, no MCE, no OpenShift required.
 | Agent CRD (assisted-service) | Stub CRD in `config/test/crds/` |
 | NodePool CRD (HyperShift) | Stub CRD in `config/test/crds/` |
 | BareMetalHost CRD (Metal3) | Stub CRD in `config/test/crds/` |
-| OME REST API | `go run ./hack/mock/ome` (`:8081`) |
-| Intersight PVA REST API | `go run ./hack/mock/intersight` (`:8082`) |
-| UCS Central XML API | `go run ./hack/mock/ucscentral` (`:8083`) |
+| OME REST API | `go run ./hack/mock/ome` (`:8081`) — target for `collectors/ome.py` |
+| Intersight PVA REST API | `go run ./hack/mock/intersight` (`:8082`) — target for `collectors/cisco_intersight.py` |
+| UCS Central XML API | `go run ./hack/mock/ucscentral` (`:8083`) — target for `collectors/ucscentral.py` |
 | Redfish / BMC | [sushy-emulator](https://docs.openstack.org/sushy-tools/latest/user/dynamic-emulator.html) (external, not included) |
 
 ---

@@ -53,10 +53,11 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 - [ ] Exclude hard-held hosts (once hard holdings are wired).
 
 ### 7. Collectors `[~]`
-- [x] Stubs: `Collector` interface + registry; `bmh`, `ome`, `intersight`, `ucscentral`. `switchtopo` superseded — topology from BMC (iDRAC Connection View / Intersight fabric).
-- [ ] **Finish `bmh`**: map introspection → store `UpsertHost`; per-host error isolation.
-- [ ] **Finish enrichment** `ome`/`ucs` (confirm Intersight vs UCS Central); `redfish` fallback.
-- [ ] **Switch topology**: poll leaves; MAC→NIC join; write segment + leaf/port.
+- [x] Go: `Collector` interface + registry + `bmh` stub. `switchtopo` superseded.
+- [x] Python: `collectors/ome.py`, `collectors/cisco_intersight.py`, `collectors/ucscentral.py` — real implementations using vendor SDKs. Write directly to `host_inventory` (bypass Go seam).
+- [ ] **Finish `bmh`** (Go): map Metal3 introspection → `UpsertHost`; per-host error isolation.
+- [ ] **Finish `cisco_intersight.py`**: expand processor units + physical disks (cores + storage_gib).
+- [ ] **`redfish.py`** (Python): per-host fallback for whitebox hardware.
 
 ### 8. Classifier `[ ]`
 - [ ] Define the 3–5 host classes and the hardware-profile → class rules.

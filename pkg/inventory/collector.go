@@ -1,11 +1,16 @@
-// Package inventory defines the vendor-neutral collector seam.
+// Package inventory defines the Go collector seam for in-cluster data sources.
 //
-// The architecture is aggregator-first: instead of holding a session to every
-// BMC, each Collector talks to one backend that already inventories a fleet
-// (OME for Dell, UCS Central / Intersight PVA for Cisco) and returns a list of
-// Observations. The redfish collector is the per-host fallback for whitebox
-// hardware no aggregator owns. All vendor quirks die inside an adapter; nothing
-// downstream knows which vendor a host came from.
+// External aggregator collectors (OME, Intersight PVA, UCS Central) are
+// implemented in Python under collectors/ and write directly to host_inventory
+// using vendor SDKs (intersight, ucscentralsdk, requests). They bypass this
+// Go interface entirely.
+//
+// This package covers:
+//   - BareMetalHost collector: reads Metal3 introspection results from k8s
+//   - Redfish collector (future): per-host fallback for whitebox hardware
+//
+// All vendor quirks die inside an adapter; nothing downstream knows which
+// vendor a host came from.
 package inventory
 
 import (
@@ -67,11 +72,11 @@ func (r *Registry) Collectors() []Collector { return r.collectors }
 //     rec := lookupInventoryRecord(o.Key)           // match by service tag
 //     if rec == nil { continue }                    // unknown host -> skip/alert
 //
-//     // OWNERSHIP: each collector writes only its owned fields; nil = don't erase.
-//     // OME/UCS write identity/bmc/compute/storage/network/topology (topology from
-//     // iDRAC Connection View or Intersight fabric mapping — available pre-boot).
-//     // BMH writes identity/bmc/compute/storage/network only (no topology —
+//     // OWNERSHIP: each Go collector writes only its owned fields; nil = don't erase.
+//     // BMH writes identity/bmc/compute/storage/network (no topology —
 //     // Ironic does not surface iDRAC Connection View data).
+//     // OME/Intersight/UCS Central write directly to host_inventory via Python
+//     // collectors; topology from those sources is not mirrored to the CR.
 //     if o.Inventory.Identity  != nil { rec.Status.Identity  = o.Inventory.Identity }
 //     if o.Inventory.Compute   != nil { rec.Status.Compute   = o.Inventory.Compute }
 //     ... etc ...

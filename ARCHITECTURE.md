@@ -166,7 +166,11 @@ inventory/
     binder.go                  AgentBinder (live) + CAPM3Binder (stub)
   pkg/inventory/          collectors
     collector.go               Collector interface + registry
-    bmh/ ome/ intersight/ ucscentral/ adapters  (switchtopo/ superseded — topology from BMC)
+    bmh/  (Go — reads Metal3 BareMetalHost k8s objects)
+  collectors/                Python — vendor SDK collectors, write directly to Postgres
+    ome.py                     Dell OME REST (requests)
+    cisco_intersight.py        Cisco Intersight PVA (intersight SDK, HMAC auth)
+    ucscentral.py              Cisco UCS Central (ucscentralsdk, XML API)
   internal/controller/
     hostclaim_controller.go    the everyday allocation reconciler
   cmd/manager/              per-MCE manager entrypoint
