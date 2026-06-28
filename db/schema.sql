@@ -71,6 +71,21 @@ CREATE TABLE IF NOT EXISTS host_reservation_member (
     PRIMARY KEY (reservation_id, service_tag)
 );
 
+-- Pending spill requests: written by the claim reconciler when local pool is
+-- short and allowSpill=true. The fleet allocator (component #12) reads this
+-- table to decide which hosts to move. One active row per claim; upserted on
+-- each reconcile, deleted when the claim reaches Satisfied.
+CREATE TABLE IF NOT EXISTS host_spill_request (
+    claim_name   TEXT NOT NULL,
+    claim_ns     TEXT NOT NULL DEFAULT '',
+    class        TEXT NOT NULL,
+    short_by     INT  NOT NULL CHECK (short_by > 0),
+    mce          TEXT NOT NULL,
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (claim_name, claim_ns)
+);
+CREATE INDEX IF NOT EXISTS idx_spill_class_mce ON host_spill_request (class, mce);
+
 -- Which provisioning segments each MCE serves. Authored config (one row per
 -- (mce, segment)). This is the data that answers "which MCE can adopt this host".
 CREATE TABLE IF NOT EXISTS mce_reach (

@@ -20,11 +20,15 @@ import (
 )
 
 // SpillRequester is how the reconciler signals a shortfall to the fleet
-// allocator. Implementations: write a SpillRequest CR, post to the allocator
-// API, or record the shortfall in the store. Kept abstract so the everyday
-// path doesn't depend on the overflow machinery being present.
+// allocator. The store-backed implementation (StoreSpillRequester) writes to
+// host_spill_request; the fleet allocator (component #12) reads that table.
+// Kept abstract so the everyday path doesn't depend on overflow machinery.
 type SpillRequester interface {
+	// RequestSpill records that a claim is short. Idempotent: safe to call on
+	// every reconcile while the shortfall persists.
 	RequestSpill(ctx context.Context, claim *v1alpha1.HostClaim, class string, shortBy int32) error
+	// CancelSpill removes the pending request once the claim is satisfied.
+	CancelSpill(ctx context.Context, claim *v1alpha1.HostClaim) error
 }
 
 // HostClaimReconciler reconciles a HostClaim into local NodePool capacity.
@@ -103,6 +107,11 @@ func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 // ---- status helpers ---------------------------------------------------------
 
 func (r *HostClaimReconciler) satisfied(ctx context.Context, hc *v1alpha1.HostClaim, bound int32) (ctrl.Result, error) {
+	if r.Spill != nil {
+		if err := r.Spill.CancelSpill(ctx, hc); err != nil {
+			return ctrl.Result{}, fmt.Errorf("cancel spill: %w", err)
+		}
+	}
 	return r.setStatus(ctx, hc, v1alpha1.ClaimSatisfied, bound, "", 0)
 }
 

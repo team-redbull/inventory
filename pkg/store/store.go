@@ -163,6 +163,27 @@ type ForecastStore interface {
 	RegionHeadroom(ctx context.Context, class string) ([]Headroom, error)
 }
 
+// SpillRequest is a pending overflow demand from one MCE that the fleet
+// allocator must satisfy by moving hosts from other MCEs.
+type SpillRequest struct {
+	ClaimName   string
+	ClaimNS     string
+	Class       string
+	ShortBy     int32
+	MCE         string
+}
+
+// SpillStore is the queue between claim reconcilers and the fleet allocator.
+// Written by StoreSpillRequester; read by the fleet allocator (component #12).
+type SpillStore interface {
+	// UpsertSpillRequest records (or updates) a pending shortfall for a claim.
+	UpsertSpillRequest(ctx context.Context, r SpillRequest) error
+	// DeleteSpillRequest removes the request when the claim is satisfied.
+	DeleteSpillRequest(ctx context.Context, claimName, claimNS string) error
+	// ListSpillRequests returns all pending requests (fleet allocator input).
+	ListSpillRequests(ctx context.Context) ([]SpillRequest, error)
+}
+
 // Store is the full surface the controllers and the API consume.
 type Store interface {
 	LeaseStore
@@ -171,6 +192,7 @@ type Store interface {
 	CapacityStore
 	ReservationStore
 	ForecastStore
+	SpillStore
 }
 
 // ---- convenience helpers built on Transition --------------------------------

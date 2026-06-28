@@ -46,8 +46,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Everyday allocation path. The Spill requester is nil until the fleet
-	// allocator exists (Phase 3) — shortfalls report Unsatisfiable until then.
+	// Everyday allocation path. SpillRequester is wired below when Postgres is
+	// present; nil until then — shortfalls report Unsatisfiable instead of spilling.
 	b := binder.NewAgentBinder(mgr.GetClient(), agentNamespace)
 	hcr := &controller.HostClaimReconciler{
 		Client: mgr.GetClient(),
@@ -75,6 +75,7 @@ func main() {
 
 		st := store.NewPG(pool)
 		hcr.Store = st
+		hcr.Spill = &controller.StoreSpillRequester{Store: st, MCE: mceName}
 		if err := (&controller.InventoryRecordReconciler{
 			Client:         mgr.GetClient(),
 			Store:          st,

@@ -13,10 +13,10 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | 2 | `InventoryRecord` CRD | Git/MCE | build | Host: declared spec + discovered status | `[x]` |
 | 3 | Store schema | Store | build | inventory/lease/allocation/state/reservation/reach + views | `[x]` |
 | 4 | Store Go (interfaces+pg) | Store | build | lease CAS, inventory, lifecycle, capacity, reservations, forecast, eligibility | `[x]` |
-| 5 | Claim reconciler | MCE | build | Everyday local allocation (HostClaim → NodePool) | `[~]` |
+| 5 | Claim reconciler | MCE | build | Everyday local allocation (HostClaim → NodePool) | `[x]` |
 | 6 | Binder (Agent) | MCE | build | NodePool agentLabelSelector binding | `[~]` |
 | 7 | Collectors | MCE | build | Push inventory/topology to store (bmh/ome/ucs/switch/redfish) | `[~]` |
-| 8 | Classifier | MCE | build | Derive class label from hardware profile | `[ ]` |
+| 8 | Classifier | MCE | stock | Class declared in `InventoryRecord.spec`; InfraEnv per class stamps `agentLabels` → superseded by #19 | `[x]` |
 | 9 | Enroll controller | MCE | build | Lease acquire + BMH create + creds wiring | `[ ]` |
 | 10 | Lifecycle/maintenance controller | MCE | build | Reflect phase → BMH (power/maintenance) | `[ ]` |
 | 11 | Move controller | MCE | build | Cross-MCE handoff state machine (overflow) | `[ ]` |
@@ -27,7 +27,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | 16 | Per-MCE ArgoCD | MCE | config | Pull-mode GitOps, ApplicationSet, app-of-apps | `[ ]` |
 | 17 | External Secrets / sealed | MCE | config | BMC creds without plaintext in Git | `[ ]` |
 | 18 | Metal3 BMO + Ironic | MCE | stock | Provisioning, two boot methods | `[ ]` |
-| 19 | Assisted / InfraEnv | MCE | stock | Agent platform; per-class `agentLabels` | `[ ]` |
+| 19 | Assisted / InfraEnv | MCE | stock | Agent platform; one InfraEnv per class with `agentLabels` = class label (replaces Classifier) | `[ ]` |
 | 20 | `mce_reach` config | Store | config | Which MCE serves which segment (eligibility) | `[ ]` |
 
 ---
@@ -40,12 +40,12 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 - [x] **Store schema** — `host_inventory`, `host_lease`, `host_allocation`, `host_state`, `host_reservation(+member)`, `mce_reach`; views `host_capacity`, `region_headroom`, `host_eligible_mce`.
 - [x] **Store Go** — `LeaseStore` (CAS Transition + Acquire/Release helpers), `InventoryStore`, `LifecycleStore` (SetHostPhase + EligibleMCEs), `CapacityStore`, `ReservationStore`, `ForecastStore`; pgx impl.
 
-### 5. Claim reconciler `[~]`
+### 5. Claim reconciler `[x]`
 - [x] Core reconcile: class from selector → EnsureNodePool → BoundCount → status.
 - [x] Unsatisfiable-with-reason; spill signal hook (nil-safe).
 - [x] **Allocation write-back**: projector resolves Agent via `agent-install.openshift.io/bmh=<serviceTag>`, calls `store.SetAllocation`, mirrors to `status.allocation`. Polled every 30s.
 - [x] **Maintenance-aware availability**: `availableHosts` uses `store.Capacity` (excludes maintenance/decommissioning via `host_capacity` view) when store is wired; falls back to Agent count.
-- [ ] Wire a real `SpillRequester` (Phase 3).
+- [x] **SpillRequester**: `StoreSpillRequester` writes to `host_spill_request` (upsert on shortfall, delete on satisfied). Fleet allocator (#12) reads that table. Wired in main.go when Postgres is present; nil otherwise (Unsatisfiable fallback).
 
 ### 6. Binder (Agent) `[~]`
 - [x] AgentBinder: AvailableHosts (approved+unbound Agents by class), EnsureNodePool, BoundCount.
@@ -59,9 +59,12 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 - [ ] **Finish `cisco_intersight.py`**: expand processor units + physical disks (cores + storage_gib).
 - [ ] **`redfish.py`** (Python): per-host fallback for whitebox hardware.
 
-### 8. Classifier `[ ]`
-- [ ] Define the 3–5 host classes and the hardware-profile → class rules.
-- [ ] Stamp `inventory.example.io/class` on the BMH; propagate to the Agent (InfraEnv `agentLabels` per class, or a copy reconciler).
+### 8. Classifier `[x]` — superseded by InfraEnv
+Class is declared in `InventoryRecord.spec.class` (GitOps, set at enrollment). No runtime derivation needed.
+- [x] One `InfraEnv` per class; `spec.agentLabels: {"inventory.example.io/class": "<class>"}` stamps all Agents from that InfraEnv automatically.
+- [x] BMH `image.url` points at the class-matching InfraEnv ISO (set by enroll controller from spec.class).
+- [x] NodePool `agentLabelSelector` matches on the class label. Nothing else needed.
+See #19 for InfraEnv config.
 
 ### 9. Enroll controller `[ ]`
 - [ ] On a new InventoryRecord: resolve creds Secret → `Acquire` lease (Free→Owned) → launch the `host-install` WorkflowTemplate (branches on boot method) → drive to `available`.

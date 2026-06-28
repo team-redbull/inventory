@@ -222,6 +222,45 @@ func (p *PG) SetHostPhase(ctx context.Context, serviceTag string, phase HostPhas
 	return err
 }
 
+// ---- SpillStore (fleet allocator input queue) --------------------------------
+
+func (p *PG) UpsertSpillRequest(ctx context.Context, r SpillRequest) error {
+	const q = `
+	INSERT INTO host_spill_request (claim_name, claim_ns, class, short_by, mce, requested_at)
+	VALUES ($1,$2,$3,$4,$5, now())
+	ON CONFLICT (claim_name, claim_ns) DO UPDATE SET
+	  class=EXCLUDED.class, short_by=EXCLUDED.short_by, mce=EXCLUDED.mce, requested_at=now()`
+	_, err := p.pool.Exec(ctx, q, r.ClaimName, r.ClaimNS, r.Class, r.ShortBy, r.MCE)
+	return err
+}
+
+func (p *PG) DeleteSpillRequest(ctx context.Context, claimName, claimNS string) error {
+	_, err := p.pool.Exec(ctx,
+		`DELETE FROM host_spill_request WHERE claim_name=$1 AND claim_ns=$2`, claimName, claimNS)
+	return err
+}
+
+func (p *PG) ListSpillRequests(ctx context.Context) ([]SpillRequest, error) {
+	const q = `SELECT claim_name, claim_ns, class, short_by, mce
+	             FROM host_spill_request ORDER BY requested_at`
+	rows, err := p.pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SpillRequest
+	for rows.Next() {
+		var r SpillRequest
+		if err := rows.Scan(&r.ClaimName, &r.ClaimNS, &r.Class, &r.ShortBy, &r.MCE); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ---- LifecycleStore (maintenance / grip on non-installed hosts) -------------
+
 // EligibleMCEs returns MCEs that can adopt a host, by provisioning reach.
 func (p *PG) EligibleMCEs(ctx context.Context, serviceTag string) ([]string, error) {
 	const q = `SELECT mce FROM host_eligible_mce WHERE service_tag = $1 ORDER BY mce`
