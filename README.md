@@ -50,13 +50,14 @@ assisted-service and HyperShift API paths/fields drift across releases.
 
 Git holds intent (claims, host records, platform); each MCE's ArgoCD pulls its
 slice. The **claim reconciler** turns a `HostClaim` into a sized NodePool via the
-**AgentBinder** and binds local Agents — the 90% path. The **store** (Postgres)
-aggregates every MCE's inventory and holds the authoritative ownership lease;
-its `region_headroom` view answers capacity/shortage. When a cluster needs hosts
-its MCE doesn't have, the **fleet allocator** picks eligible donors and the
-**move controller** runs a cross-MCE handoff gated by Argo Workflows, serialized
-by a single CAS lease. Enrollment and moves are workflow-driven because the boot
-methods (Redfish vs IPMI+PXE) and the teardown/verification differ per host.
+**AgentBinder** and binds local Agents — the 90% path. The **hub** runs Postgres
+and the Python collector Deployments (OME/Intersight/UCS Central) that populate it;
+no Kubernetes API server required on the hub. The **store** holds the authoritative
+ownership lease and its `region_headroom` view answers capacity/shortage. When a
+cluster needs hosts its MCE doesn't have, the **fleet allocator** picks eligible
+donors and the **move controller** runs a cross-MCE handoff gated by Argo Workflows,
+serialized by a single CAS lease. Enrollment and moves are workflow-driven because
+the boot methods (Redfish vs IPMI+PXE) and the teardown/verification differ per host.
 
 ## Contributing
 

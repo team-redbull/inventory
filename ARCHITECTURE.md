@@ -34,15 +34,19 @@ standalone ArgoCD pulls only its own slice (ApplicationSet scoped by MCE label),
 destination always in-cluster. No hub pushes; no ManifestWork. Adding an MCE costs
 the control plane nothing.
 
-**Runtime truth — the store (Postgres).** The single fleet-wide component, and the
-only shared write point — deliberately **off the data path** (it carries small
-facts and lease transitions, never provisioning bandwidth). It holds the
-authoritative ownership lease, the aggregated inventory, allocations, holdings,
-lifecycle state, and the capacity/headroom views. It is *not* a Kubernetes hub.
+**Runtime truth — the hub (Postgres + vendor collectors).** The hub is deliberately
+narrow: a Postgres instance and the Python collector Deployments that feed it. No
+Kubernetes API server required on the hub — just the database and the collector pods.
+The store holds the authoritative ownership lease, the aggregated inventory,
+allocations, holdings, lifecycle state, and the capacity/headroom views.
+The Python collectors (OME, Intersight, UCS Central) run here because they only need
+network reach to the vendor APIs and to Postgres — no k8s API access, no MCE coupling.
 
 **Execution — each MCE.** Holds only its own slice of objects (BMHs, Agents,
-NodePools, InventoryRecords) plus the controllers that act on them. The data path
-— ISO serving, PXE, disk writes, ignition — never leaves the MCE.
+NodePools, InventoryRecords) plus the controllers that act on them. The Go collectors
+(BMH introspection, Redfish) run here because they need k8s API access to read
+BareMetalHost objects and BMC credential Secrets. The data path — ISO serving, PXE,
+disk writes, ignition — never leaves the MCE.
 
 > Key consequence: an MCE only has Kubernetes objects for hosts it currently owns.
 > The store is the only thing with the whole fleet. "Which MCE owns host X right
@@ -107,11 +111,13 @@ branching on boot method (Redfish virtual-media vs IPMI+PXE) before converging o
 create-BMH → Ironic inspect → classify → register. The class is stamped on the
 BMH/Agent and facts pushed to the store. Phase → spare.
 
-**Inventory & capacity.** Every MCE's collectors push discovered facts up (CQRS
-write side; nothing polls down). The store aggregates into `host_capacity` (per
-MCE) and `region_headroom` (per class, region-wide: total / allocated /
-maintenance / discovered / spare / reserved / free_headroom / shortage). The
-Capacity API + UI reads this — the regional control surface.
+**Inventory & capacity.** Hub-side Python collectors (OME, Intersight, UCS Central)
+poll vendor APIs and write hardware facts to the store continuously. Per-MCE Go
+collectors (BMH introspection, Redfish) write during the IR reconcile loop. Nothing
+polls down — all writes flow into Postgres (CQRS write side). The store aggregates
+into `host_capacity` (per MCE) and `region_headroom` (per class, region-wide: total /
+allocated / maintenance / discovered / spare / reserved / free_headroom / shortage).
+The Capacity API + UI reads this — the regional control surface.
 
 **Everyday allocation (the 90% path).** A `HostClaim` lands in Git → ArgoCD
 delivers it to the MCE hosting the target cluster → the **claim reconciler**
@@ -136,7 +142,25 @@ gate holds the lease and quarantines the host.
 
 ---
 
-## 6. Key design decisions
+## 6. Where things run
+
+| Component | Where | Why |
+|-----------|-------|-----|
+| Postgres | **Hub** | Fleet-wide shared state; one instance (or HA pair) per region |
+| OME / Intersight / UCS Central collectors | **Hub** | Only need vendor API + Postgres access; no k8s dependency |
+| Enroll-bot (Git PR automation) | **Hub** | Watches store for discovered hosts; needs Postgres + Git credentials |
+| Capacity API + UI | **Hub** | Reads store views; no k8s dependency |
+| Fleet allocator | **Hub** | Reads whole-region store; no k8s dependency |
+| `fleet-manager` (IR + claim reconciler) | **Per-MCE** | Needs k8s API: BMH, Agents, Secrets, NodePools |
+| Go collectors (BMH, Redfish) | **Per-MCE** (inside fleet-manager) | Need k8s API to read BareMetalHost + credential Secrets |
+| Argo Workflows | **Per-MCE** | Provisioning actions run inside the MCE |
+| ArgoCD | **Per-MCE** | Pulls fleet-config slice for this MCE only |
+
+The hub has no Kubernetes API server requirement — Postgres + collector pods can run on a plain VM or a minimal container runtime. The "no k8s hub" principle holds: nothing on the hub manages k8s objects.
+
+---
+
+## 7. Key design decisions
 
 - **No ManifestWork / no central push.** Per-MCE standalone ArgoCD in pull mode.
   The hub-shaped role shrinks to a small transactional store off the data path.
@@ -157,7 +181,7 @@ gate holds the lease and quarantines the host.
 
 ---
 
-## 7. Repository layout
+## 8. Repository layout
 
 ```
 inventory/
@@ -170,14 +194,15 @@ inventory/
     postgres.go                pgx implementation
   pkg/binder/             NodePool binding seam
     binder.go                  AgentBinder (live) + CAPM3Binder (stub)
-  pkg/inventory/          Go collectors — write discovered facts directly to Postgres
+  pkg/inventory/          Go collectors (run per-MCE — need k8s API access)
     collector.go               Collector interface + registry
     bmh/                       Metal3 BareMetalHost introspection (primary, via k8s unstructured)
     redfish/                   per-host Redfish fallback for whitebox/generic BMC hosts
-  collectors/             Python collectors — vendor SDK, write directly to Postgres
+  collectors/             Python collectors (run on hub — need only Postgres + vendor network)
     ome.py                     Dell OME REST (requests)
     cisco_intersight.py        Cisco Intersight PVA (intersight SDK, HMAC auth)
     ucscentral.py              Cisco UCS Central (ucscentralsdk, XML API)
+  config/collectors/      Kubernetes Deployment manifests for the Python collectors
   internal/controller/
     hostclaim_controller.go    the everyday allocation reconciler
     inventoryrecord_controller.go  IR → store projector (declared fields + Go-side discovery)

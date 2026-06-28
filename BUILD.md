@@ -15,7 +15,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | 4 | Store Go (interfaces+pg) | Store | build | lease CAS, inventory, lifecycle, capacity, reservations, forecast, eligibility | `[x]` |
 | 5 | Claim reconciler | MCE | build | Everyday local allocation (HostClaim → NodePool) | `[x]` |
 | 6 | Binder (Agent) | MCE | build | NodePool agentLabelSelector binding | `[x]` |
-| 7 | Collectors | MCE | build | Push inventory/topology to store (bmh/ome/ucs/switch/redfish) | `[x]` |
+| 7 | Collectors | Hub + MCE | build | Push inventory to store: Python collectors (OME/Intersight/UCS) on hub; Go collectors (BMH/Redfish) per-MCE | `[x]` |
 | 8 | Classifier | MCE | stock | Class declared in `InventoryRecord.spec`; InfraEnv per class stamps `agentLabels` → superseded by #19 | `[x]` |
 | 9 | Enroll controller | MCE | build | Lease acquire + BMH create + creds wiring | `[ ]` |
 | 10 | Lifecycle/maintenance controller | MCE | build | Reflect phase → BMH (power/maintenance) | `[ ]` |
