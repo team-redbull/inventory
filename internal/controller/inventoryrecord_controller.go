@@ -16,6 +16,7 @@ import (
 
 	v1alpha1 "example.io/inventory/api/v1alpha1"
 	"example.io/inventory/pkg/inventory/bmh"
+	"example.io/inventory/pkg/inventory/redfish"
 	"example.io/inventory/pkg/store"
 )
 
@@ -58,6 +59,7 @@ type InventoryRecordReconciler struct {
 // +kubebuilder:rbac:groups=inventory.example.io,resources=inventoryrecords/status,verbs=update;patch
 // +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents,verbs=get;list;watch
 // +kubebuilder:rbac:groups=metal3.io,resources=baremetalhosts,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 
 func (r *InventoryRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var rec v1alpha1.InventoryRecord
@@ -70,8 +72,25 @@ func (r *InventoryRecordReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// identity nil-check so that a fresh IR gets populated on first BMH inspection.
 	r.enrichFromBMH(ctx, &rec)
 
-	// Wait until identity is set — either by the BMH enrichment above, or by an
-	// external collector (OME/Intersight/UCS Central) writing directly to Postgres.
+	// Fallback: for generic BMC types not managed by an aggregator (OME/UCS/Intersight),
+	// query the Redfish endpoint directly. Only runs when BMH enrichment didn't fire.
+	if rec.Status.Identity == nil &&
+		(rec.Spec.BMC.Type == v1alpha1.BMCTypeGeneric || rec.Spec.BMC.Type == "") {
+		if inv := redfish.Enrich(ctx, r.Client, &rec); inv != nil {
+			if rec.Status.Identity == nil {
+				rec.Status.Identity = inv.Identity
+			}
+			if rec.Status.Compute == nil {
+				rec.Status.Compute = inv.Compute
+			}
+			if rec.Status.Storage == nil {
+				rec.Status.Storage = inv.Storage
+			}
+		}
+	}
+
+	// Wait until identity is set — either by BMH/Redfish enrichment above, or by
+	// an external collector (OME/Intersight/UCS Central) writing directly to Postgres.
 	// For the Python-collector path the IR status may stay nil; those collectors
 	// write directly to host_inventory and the IR reconciler writes only declared
 	// fields (site/segment/class/bmc_*) via UpsertHost with COALESCE guards.

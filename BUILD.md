@@ -15,7 +15,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | 4 | Store Go (interfaces+pg) | Store | build | lease CAS, inventory, lifecycle, capacity, reservations, forecast, eligibility | `[x]` |
 | 5 | Claim reconciler | MCE | build | Everyday local allocation (HostClaim → NodePool) | `[x]` |
 | 6 | Binder (Agent) | MCE | build | NodePool agentLabelSelector binding | `[x]` |
-| 7 | Collectors | MCE | build | Push inventory/topology to store (bmh/ome/ucs/switch/redfish) | `[~]` (redfish pending) |
+| 7 | Collectors | MCE | build | Push inventory/topology to store (bmh/ome/ucs/switch/redfish) | `[x]` |
 | 8 | Classifier | MCE | stock | Class declared in `InventoryRecord.spec`; InfraEnv per class stamps `agentLabels` → superseded by #19 | `[x]` |
 | 9 | Enroll controller | MCE | build | Lease acquire + BMH create + creds wiring | `[ ]` |
 | 10 | Lifecycle/maintenance controller | MCE | build | Reflect phase → BMH (power/maintenance) | `[ ]` |
@@ -59,7 +59,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 - [x] **OME session management**: store session ID from login response body; `disconnect()` issues `DELETE /api/SessionService/Sessions('{id}')` before reconnect (prevents session pool exhaustion on OME). Matches reference pattern from `dell_server_strategy.py`.
 - [x] **Finish `cisco_intersight.py`**: cores = `num_threads // 2` (logical→physical, HT assumed; falls back to socket count); storage via `storage_api.get_storage_physical_disk_list` filtered by `RegisteredDevice.Moid`.
 - [x] **`UpsertHost` COALESCE fix**: IR reconciler no longer stomps Python collector writes — `ON CONFLICT` uses `COALESCE(NULLIF(EXCLUDED.x,''), existing)` for text fields and `CASE WHEN > 0` for numeric fields.
-- [ ] **`redfish.py`** (Python): per-host fallback for whitebox hardware. Blocked on credential distribution (BMC creds are in k8s Secrets, not accessible from Python without explicit mounting).
+- [x] **`redfish` collector** (Go, `pkg/inventory/redfish`): per-host fallback for whitebox / generic BMC hosts. Resolves `spec.bmc.credentialsRef` Secret → queries Redfish `/redfish/v1/Systems` → extracts vendor/model/cores/RAM/storage. Wired into IR reconciler after BMH enrichment; only fires when `bmc.type=generic` and `status.identity` still nil. Handles all BMC URL schemes (redfish://, redfish+http://, idrac-virtualmedia://, ilo5://, bare IP). RBAC: Secrets get.
 
 ### 8. Classifier `[x]` — superseded by InfraEnv
 Class is declared in `InventoryRecord.spec.class` (GitOps, set at enrollment). No runtime derivation needed.
