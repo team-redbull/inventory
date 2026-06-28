@@ -16,6 +16,7 @@ import (
 
 	v1alpha1 "example.io/inventory/api/v1alpha1"
 	"example.io/inventory/pkg/binder"
+	"example.io/inventory/pkg/store"
 )
 
 // SpillRequester is how the reconciler signals a shortfall to the fleet
@@ -32,6 +33,9 @@ type HostClaimReconciler struct {
 	Binder binder.Binder
 	Spill  SpillRequester // may be nil before Phase 3 — then shortfalls are reported as Unsatisfiable
 	MCE    string         // name of the MCE this controller runs in
+	// Store is optional. When present, AvailableHosts uses host_capacity (which
+	// excludes maintenance/decommissioning) instead of the raw Agent count.
+	Store store.CapacityStore
 }
 
 // +kubebuilder:rbac:groups=inventory.example.io,resources=hostclaims,verbs=get;list;watch;update;patch
@@ -69,7 +73,7 @@ func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Short. How many of this class are available locally to bind right now?
-	avail, err := r.Binder.AvailableHosts(ctx, class)
+	avail, err := r.availableHosts(ctx, class)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("available hosts: %w", err)
 	}
@@ -167,6 +171,25 @@ func spillWord(allow, haveRequester bool) string {
 		return "unavailable (fleet allocator not deployed)"
 	}
 	return "enabled"
+}
+
+// availableHosts returns the number of hosts of the given class that are
+// available locally. When the store is wired it uses host_capacity.available,
+// which excludes maintenance and decommissioning hosts. Without the store it
+// falls back to counting approved unbound Agents (no phase awareness).
+func (r *HostClaimReconciler) availableHosts(ctx context.Context, class string) (int, error) {
+	if r.Store != nil {
+		rows, err := r.Store.Capacity(ctx, store.CapacityFilter{Class: class, OwnerMCE: r.MCE})
+		if err != nil {
+			return 0, err
+		}
+		total := 0
+		for _, row := range rows {
+			total += row.Available
+		}
+		return total, nil
+	}
+	return r.Binder.AvailableHosts(ctx, class)
 }
 
 func (r *HostClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {

@@ -44,7 +44,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 - [x] Core reconcile: class from selector → EnsureNodePool → BoundCount → status.
 - [x] Unsatisfiable-with-reason; spill signal hook (nil-safe).
 - [x] **Allocation write-back**: projector resolves Agent via `agent-install.openshift.io/bmh=<serviceTag>`, calls `store.SetAllocation`, mirrors to `status.allocation`. Polled every 30s.
-- [ ] **Maintenance-aware availability**: exclude non-`in_service` hosts when counting available.
+- [x] **Maintenance-aware availability**: `availableHosts` uses `store.Capacity` (excludes maintenance/decommissioning via `host_capacity` view) when store is wired; falls back to Agent count.
 - [ ] Wire a real `SpillRequester` (Phase 3).
 
 ### 6. Binder (Agent) `[~]`

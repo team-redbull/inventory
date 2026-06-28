@@ -49,11 +49,12 @@ func main() {
 	// Everyday allocation path. The Spill requester is nil until the fleet
 	// allocator exists (Phase 3) — shortfalls report Unsatisfiable until then.
 	b := binder.NewAgentBinder(mgr.GetClient(), agentNamespace)
-	if err := (&controller.HostClaimReconciler{
+	hcr := &controller.HostClaimReconciler{
 		Client: mgr.GetClient(),
 		Binder: b,
 		MCE:    mceName,
-	}).SetupWithManager(mgr); err != nil {
+	}
+	if err := hcr.SetupWithManager(mgr); err != nil {
 		log.Error(err, "unable to set up HostClaim reconciler")
 		os.Exit(1)
 	}
@@ -73,6 +74,7 @@ func main() {
 		defer pool.Close()
 
 		st := store.NewPG(pool)
+		hcr.Store = st
 		if err := (&controller.InventoryRecordReconciler{
 			Client:         mgr.GetClient(),
 			Store:          st,
