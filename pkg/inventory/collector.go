@@ -64,29 +64,11 @@ func NewRegistry(c ...Collector) *Registry { return &Registry{collectors: c} }
 func (r *Registry) Collectors() []Collector { return r.collectors }
 
 // -------------------------------------------------------------------------
-// Reconcile-merge contract (implemented in the controller, sketched here so
-// the rule travels with the seam):
+// Write contract: ALL collectors write discovered facts directly to Postgres
+// (host_inventory). The InventoryRecord CR is NOT a hardware cache.
 //
-//   obs := collector.List(ctx)                      // per collector
-//   for each o in obs:
-//     rec := lookupInventoryRecord(o.Key)           // match by service tag
-//     if rec == nil { continue }                    // unknown host -> skip/alert
-//
-//     // OWNERSHIP: each Go collector writes only its owned fields; nil = don't erase.
-//     // BMH writes identity/bmc/compute/storage/network (no topology —
-//     // Ironic does not surface iDRAC Connection View data).
-//     // OME/Intersight/UCS Central write directly to host_inventory via Python
-//     // collectors; topology from those sources is not mirrored to the CR.
-//     if o.Inventory.Identity  != nil { rec.Status.Identity  = o.Inventory.Identity }
-//     if o.Inventory.Compute   != nil { rec.Status.Compute   = o.Inventory.Compute }
-//     ... etc ...
-//     if o.Inventory.Topology  != nil { rec.Status.Topology  = o.Inventory.Topology }
-//
-//     // spec.Placement is NEVER written here — it stays GitOps-authoritative.
-//     rec.Status.Collection = CollectionStatus{Source: collector.Source(), LastSuccess: now}
-//     setReadyCondition(rec)
-//     status().Update(rec)
-//
-// A separate projector watches InventoryRecord and upserts the merged view
-// into Postgres for the UI / history / fleet analytics.
+// Go collectors (BMH, Redfish) are called from the IR reconciler and write
+// via store.UpsertHost. Python collectors (OME, Intersight, UCS Central) write
+// directly from their own process. The store is the single source of truth;
+// the CR status carries only runtime state (lease, allocation).
 // -------------------------------------------------------------------------

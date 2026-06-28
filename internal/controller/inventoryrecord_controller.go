@@ -37,11 +37,17 @@ var (
 	}
 )
 
-// InventoryRecordReconciler projects InventoryRecord status into Postgres.
-// It is the single write path from k8s state into the central fleet store.
+// InventoryRecordReconciler projects InventoryRecord spec into Postgres and
+// mirrors runtime state (lease, allocation) back into status.
+//
+// Postgres is the single source of truth for hardware facts. This reconciler
+// never caches hardware data in status — it writes discovered facts directly
+// to the store and reads them back only from there.
 //
 // Three responsibilities per reconcile:
-//  1. UpsertHost     — keeps host_inventory current with discovered facts.
+//  1. UpsertHost     — writes declared spec fields + any Go-discovered hardware
+//     facts (BMH introspection, Redfish) directly to host_inventory. Python
+//     collectors (OME/Intersight/UCS) write independently on their own schedule.
 //  2. Acquire        — on first enrollment (lease is Free), claims the host for
 //     the home MCE (Free → Owned). Idempotent: ErrLeaseConflict means already owned.
 //  3. SetAllocation  — mirrors Agent binding state into the store and into
@@ -67,53 +73,30 @@ func (r *InventoryRecordReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Enrich status from a co-located BareMetalHost (same name+namespace).
-	// By convention the BMH is named after the serviceTag. This runs before the
-	// identity nil-check so that a fresh IR gets populated on first BMH inspection.
-	r.enrichFromBMH(ctx, &rec)
-
-	// Fallback: for generic BMC types not managed by an aggregator (OME/UCS/Intersight),
-	// query the Redfish endpoint directly. Only runs when BMH enrichment didn't fire.
-	if rec.Status.Identity == nil &&
-		(rec.Spec.BMC.Type == v1alpha1.BMCTypeGeneric || rec.Spec.BMC.Type == "") {
-		if inv := redfish.Enrich(ctx, r.Client, &rec); inv != nil {
-			if rec.Status.Identity == nil {
-				rec.Status.Identity = inv.Identity
-			}
-			if rec.Status.Compute == nil {
-				rec.Status.Compute = inv.Compute
-			}
-			if rec.Status.Storage == nil {
-				rec.Status.Storage = inv.Storage
-			}
-		}
-	}
-
-	// Wait until identity is set — either by BMH/Redfish enrichment above, or by
-	// an external collector (OME/Intersight/UCS Central) writing directly to Postgres.
-	// For the Python-collector path the IR status may stay nil; those collectors
-	// write directly to host_inventory and the IR reconciler writes only declared
-	// fields (site/segment/class/bmc_*) via UpsertHost with COALESCE guards.
-	if rec.Status.Identity == nil {
-		return ctrl.Result{}, nil
-	}
+	// Discover hardware facts from Go-side sources and write them directly to
+	// the store. Status never carries hardware data — Postgres is the single truth.
+	hw := r.discoverFacts(ctx, &rec)
 
 	f := store.HostFact{
 		ServiceTag: rec.Spec.ServiceTag,
 		Site:       rec.Spec.Placement.Site,
-		Class:      rec.Status.Class,
-		Vendor:     rec.Status.Identity.Vendor,
-		Model:      rec.Status.Identity.Model,
+		Class:      rec.Spec.Class,
 		Segment:    rec.Spec.Network.Segment,
 		BMCAddress: rec.Spec.BMC.Address,
 		BMCType:    string(rec.Spec.BMC.Type),
 	}
-	if rec.Status.Compute != nil {
-		f.Cores = rec.Status.Compute.CoresTotal
-		f.RAMGiB = rec.Status.Compute.RAMGiB
-	}
-	if rec.Status.Storage != nil {
-		f.StorageGiB = rec.Status.Storage.TotalGiB
+	if hw != nil {
+		if hw.Identity != nil {
+			f.Vendor = hw.Identity.Vendor
+			f.Model = hw.Identity.Model
+		}
+		if hw.Compute != nil {
+			f.Cores = hw.Compute.CoresTotal
+			f.RAMGiB = hw.Compute.RAMGiB
+		}
+		if hw.Storage != nil {
+			f.StorageGiB = hw.Storage.TotalGiB
+		}
 	}
 
 	if err := r.Store.UpsertHost(ctx, f); err != nil {
@@ -165,6 +148,29 @@ func (r *InventoryRecordReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
+// discoverFacts gathers hardware inventory from Go-side sources (BMH introspection,
+// Redfish) and returns it for direct write to the store. Returns nil when no
+// Go-side source has data yet (Python collectors may still populate the row).
+func (r *InventoryRecordReconciler) discoverFacts(ctx context.Context, rec *v1alpha1.InventoryRecord) *v1alpha1.DiscoveredInventory {
+	// Primary: BareMetalHost introspection result (Ironic).
+	bmhObj := &unstructured.Unstructured{}
+	bmhObj.SetGroupVersionKind(bmhGVK)
+	if err := r.Get(ctx, types.NamespacedName{Name: rec.Name, Namespace: rec.Namespace}, bmhObj); err == nil {
+		if hw, found, _ := unstructured.NestedMap(bmhObj.Object, "status", "hardwareDetails"); found {
+			if inv := bmh.MapHardwareDetails(hw); inv != nil {
+				return inv
+			}
+		}
+	}
+
+	// Fallback: direct Redfish query for generic/whitebox BMC types not managed
+	// by OME, Intersight, or UCS Central.
+	if rec.Spec.BMC.Type == v1alpha1.BMCTypeGeneric || rec.Spec.BMC.Type == "" {
+		return redfish.Enrich(ctx, r.Client, rec)
+	}
+	return nil
+}
+
 // resolveAllocation looks up the Agent that BMAC paired to this BMH
 // (label agent-install.openshift.io/bmh = serviceTag) and returns an Allocation
 // if the Agent is bound to a cluster, or nil if unbound / not yet matched.
@@ -197,41 +203,6 @@ func (r *InventoryRecordReconciler) resolveAllocation(ctx context.Context, servi
 		}, nil
 	}
 	return nil, nil
-}
-
-// enrichFromBMH looks up the BareMetalHost with the same name+namespace as the
-// InventoryRecord. If Ironic has completed introspection (status.hardwareDetails
-// is present), it merges the hardware into the IR status in-memory. The caller
-// must then patch the status to persist it. Errors are non-fatal: if the BMH
-// does not exist or has not been inspected yet, enrichment is a no-op.
-func (r *InventoryRecordReconciler) enrichFromBMH(ctx context.Context, rec *v1alpha1.InventoryRecord) {
-	bmhObj := &unstructured.Unstructured{}
-	bmhObj.SetGroupVersionKind(bmhGVK)
-	if err := r.Get(ctx, types.NamespacedName{Name: rec.Name, Namespace: rec.Namespace}, bmhObj); err != nil {
-		return
-	}
-	hw, found, _ := unstructured.NestedMap(bmhObj.Object, "status", "hardwareDetails")
-	if !found {
-		return
-	}
-	inv := bmh.MapHardwareDetails(hw)
-	if inv == nil {
-		return
-	}
-	// Merge into rec.Status — only overwrite nil fields so an explicit status
-	// patch from an operator or test harness is not silently discarded.
-	if rec.Status.Identity == nil {
-		rec.Status.Identity = inv.Identity
-	}
-	if rec.Status.Compute == nil {
-		rec.Status.Compute = inv.Compute
-	}
-	if rec.Status.Storage == nil {
-		rec.Status.Storage = inv.Storage
-	}
-	if len(rec.Status.Network) == 0 {
-		rec.Status.Network = inv.Network
-	}
 }
 
 func (r *InventoryRecordReconciler) SetupWithManager(mgr ctrl.Manager) error {

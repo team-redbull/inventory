@@ -1,11 +1,11 @@
 // Package v1alpha1 contains the InventoryRecord (a.k.a. Host) and HostClaim APIs.
 //
 // Design rule: spec holds DECLARED facts (enrollment identity, physical
-// placement, BMC coordinates) authored in GitOps. status holds DISCOVERED and
-// RUNTIME facts written by the local controller in each MCE: hardware from
-// introspection, the reflected ownership/lease, and the allocation outcome.
-// A collector reconcile NEVER writes spec, so re-inventory can't clobber
-// human-declared data.
+// placement, BMC coordinates) authored in GitOps. status holds RUNTIME state:
+// the reflected ownership/lease and the allocation outcome. Hardware facts
+// (vendor, model, cores, RAM, storage) live exclusively in the central Postgres
+// store — collectors write there directly and the store is the single source of
+// truth. The CR is not a hardware cache.
 //
 // The AUTHORITATIVE ownership lease lives in the central store (Postgres), not
 // in this CR. status.ownership is only a reflected copy for observability.
@@ -121,14 +121,6 @@ type NetworkSpec struct {
 // -------------------------------------------------------------------------
 
 type InventoryRecordStatus struct {
-	// DiscoveredInventory is the canonical, vendor-neutral model every collector
-	// targets. Inlined so the collector return type and the CRD status share one
-	// definition.
-	DiscoveredInventory `json:",inline"`
-
-	// Class is the effective (possibly derived) class label value.
-	Class string `json:"class,omitempty"`
-
 	// Ownership is a REFLECTED copy of the central lease for observability only;
 	// the authoritative lease lives in the store.
 	Ownership *OwnershipStatus `json:"ownership,omitempty"`
@@ -234,10 +226,8 @@ type CollectionStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=inv
-// +kubebuilder:printcolumn:name="Class",type=string,JSONPath=`.status.class`
-// +kubebuilder:printcolumn:name="Vendor",type=string,JSONPath=`.status.identity.vendor`
-// +kubebuilder:printcolumn:name="Model",type=string,JSONPath=`.status.identity.model`
-// +kubebuilder:printcolumn:name="RAM-GiB",type=integer,JSONPath=`.status.compute.ramGiB`
+// +kubebuilder:printcolumn:name="Class",type=string,JSONPath=`.spec.class`
+// +kubebuilder:printcolumn:name="Site",type=string,JSONPath=`.spec.placement.site`
 // +kubebuilder:printcolumn:name="Owner",type=string,JSONPath=`.status.ownership.ownerMce`
 // +kubebuilder:printcolumn:name="Lease",type=string,JSONPath=`.status.ownership.leaseState`
 // +kubebuilder:printcolumn:name="HostedCluster",type=string,JSONPath=`.status.allocation.hostedCluster`

@@ -48,11 +48,11 @@ def upsert(conn: psycopg.Connection, f: DiscoveredFact) -> None:
             (%(service_tag)s, %(vendor)s, %(model)s, %(cores)s, %(ram_gib)s,
              %(storage_gib)s, now())
         ON CONFLICT (service_tag) DO UPDATE SET
-            vendor      = EXCLUDED.vendor,
-            model       = EXCLUDED.model,
-            cores       = EXCLUDED.cores,
-            ram_gib     = EXCLUDED.ram_gib,
-            storage_gib = EXCLUDED.storage_gib,
+            vendor      = COALESCE(NULLIF(EXCLUDED.vendor, ''),      host_inventory.vendor),
+            model       = COALESCE(NULLIF(EXCLUDED.model, ''),       host_inventory.model),
+            cores       = CASE WHEN EXCLUDED.cores > 0       THEN EXCLUDED.cores       ELSE host_inventory.cores       END,
+            ram_gib     = CASE WHEN EXCLUDED.ram_gib > 0     THEN EXCLUDED.ram_gib     ELSE host_inventory.ram_gib     END,
+            storage_gib = CASE WHEN EXCLUDED.storage_gib > 0 THEN EXCLUDED.storage_gib ELSE host_inventory.storage_gib END,
             last_seen   = now()
         """,
         {
