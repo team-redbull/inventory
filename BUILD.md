@@ -15,7 +15,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | 4 | Store Go (interfaces+pg) | Store | build | lease CAS, inventory, lifecycle, capacity, reservations, forecast, eligibility | `[x]` |
 | 5 | Claim reconciler | MCE | build | Everyday local allocation (HostClaim → NodePool) | `[x]` |
 | 6 | Binder (Agent) | MCE | build | NodePool agentLabelSelector binding | `[x]` |
-| 7 | Collectors | MCE | build | Push inventory/topology to store (bmh/ome/ucs/switch/redfish) | `[~]` |
+| 7 | Collectors | MCE | build | Push inventory/topology to store (bmh/ome/ucs/switch/redfish) | `[~]` (redfish pending) |
 | 8 | Classifier | MCE | stock | Class declared in `InventoryRecord.spec`; InfraEnv per class stamps `agentLabels` → superseded by #19 | `[x]` |
 | 9 | Enroll controller | MCE | build | Lease acquire + BMH create + creds wiring | `[ ]` |
 | 10 | Lifecycle/maintenance controller | MCE | build | Reflect phase → BMH (power/maintenance) | `[ ]` |
@@ -55,9 +55,11 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 ### 7. Collectors `[~]`
 - [x] Go: `Collector` interface + registry + `bmh` stub. `switchtopo` superseded.
 - [x] Python: `collectors/ome.py`, `collectors/cisco_intersight.py`, `collectors/ucscentral.py` — real implementations using vendor SDKs. Write directly to `host_inventory` (bypass Go seam).
-- [ ] **Finish `bmh`** (Go): map Metal3 introspection → `UpsertHost`; per-host error isolation.
-- [ ] **Finish `cisco_intersight.py`**: expand processor units + physical disks (cores + storage_gib).
-- [ ] **`redfish.py`** (Python): per-host fallback for whitebox hardware.
+- [x] **Finish `bmh`** (Go): `MapHardwareDetails` exported from `pkg/inventory/bmh`; InventoryRecord reconciler calls `enrichFromBMH` on every reconcile — reads co-located BMH (same name+namespace), merges `status.hardwareDetails` into IR status if inspected. Watches BMH changes to trigger IR reconcile. RBAC marker added.
+- [x] **OME session management**: store session ID from login response body; `disconnect()` issues `DELETE /api/SessionService/Sessions('{id}')` before reconnect (prevents session pool exhaustion on OME). Matches reference pattern from `dell_server_strategy.py`.
+- [x] **Finish `cisco_intersight.py`**: cores = `num_threads // 2` (logical→physical, HT assumed; falls back to socket count); storage via `storage_api.get_storage_physical_disk_list` filtered by `RegisteredDevice.Moid`.
+- [x] **`UpsertHost` COALESCE fix**: IR reconciler no longer stomps Python collector writes — `ON CONFLICT` uses `COALESCE(NULLIF(EXCLUDED.x,''), existing)` for text fields and `CASE WHEN > 0` for numeric fields.
+- [ ] **`redfish.py`** (Python): per-host fallback for whitebox hardware. Blocked on credential distribution (BMC creds are in k8s Secrets, not accessible from Python without explicit mounting).
 
 ### 8. Classifier `[x]` — superseded by InfraEnv
 Class is declared in `InventoryRecord.spec.class` (GitOps, set at enrollment). No runtime derivation needed.

@@ -71,15 +71,27 @@ func (p *PG) Transition(ctx context.Context, serviceTag string,
 // ---- InventoryStore ---------------------------------------------------------
 
 func (p *PG) UpsertHost(ctx context.Context, f HostFact) error {
+	// COALESCE/CASE guards: never overwrite a non-empty value with an empty one.
+	// Python collectors write only discovered fields (vendor/model/cores/ram/storage)
+	// and this reconciler writes both declared (site/class/segment/bmc_*) and
+	// discovered fields. Without guards the reconciler would zero out Python-written
+	// facts when IR status is not yet populated.
 	const q = `
 	INSERT INTO host_inventory
 	  (service_tag, site, class, vendor, model, cores, ram_gib, storage_gib, segment, bmc_address, bmc_type, last_seen)
 	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
 	ON CONFLICT (service_tag) DO UPDATE SET
-	  site=EXCLUDED.site, class=EXCLUDED.class, vendor=EXCLUDED.vendor, model=EXCLUDED.model,
-	  cores=EXCLUDED.cores, ram_gib=EXCLUDED.ram_gib, storage_gib=EXCLUDED.storage_gib,
-	  segment=EXCLUDED.segment, bmc_address=EXCLUDED.bmc_address, bmc_type=EXCLUDED.bmc_type,
-	  last_seen=now()`
+	  site        = COALESCE(NULLIF(EXCLUDED.site,''),        host_inventory.site),
+	  class       = COALESCE(NULLIF(EXCLUDED.class,''),       host_inventory.class),
+	  vendor      = COALESCE(NULLIF(EXCLUDED.vendor,''),      host_inventory.vendor),
+	  model       = COALESCE(NULLIF(EXCLUDED.model,''),       host_inventory.model),
+	  cores       = CASE WHEN EXCLUDED.cores > 0       THEN EXCLUDED.cores       ELSE host_inventory.cores       END,
+	  ram_gib     = CASE WHEN EXCLUDED.ram_gib > 0     THEN EXCLUDED.ram_gib     ELSE host_inventory.ram_gib     END,
+	  storage_gib = CASE WHEN EXCLUDED.storage_gib > 0 THEN EXCLUDED.storage_gib ELSE host_inventory.storage_gib END,
+	  segment     = COALESCE(NULLIF(EXCLUDED.segment,''),     host_inventory.segment),
+	  bmc_address = COALESCE(NULLIF(EXCLUDED.bmc_address,''), host_inventory.bmc_address),
+	  bmc_type    = COALESCE(NULLIF(EXCLUDED.bmc_type,''),    host_inventory.bmc_type),
+	  last_seen   = now()`
 	_, err := p.pool.Exec(ctx, q, f.ServiceTag, f.Site, f.Class, f.Vendor, f.Model,
 		f.Cores, f.RAMGiB, f.StorageGiB, f.Segment, f.BMCAddress, f.BMCType)
 	if err != nil {

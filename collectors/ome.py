@@ -28,17 +28,51 @@ OME_DEVICE_TYPE_SERVER = 1000
 class OMESession:
     def __init__(self, base_url: str, username: str, password: str, verify: bool = True):
         self.base_url = base_url.rstrip("/")
+        self._username = username
+        self._password = password
+        self._verify = verify
         self.session = requests.Session()
         self.session.verify = verify
+        self._session_id: str | None = None
+        self._connect()
 
+    def _connect(self) -> None:
         r = self.session.post(
             f"{self.base_url}/api/SessionService/Sessions",
-            json={"UserName": username, "Password": password, "SessionType": "API"},
+            json={"UserName": self._username, "Password": self._password, "SessionType": "API"},
             timeout=30,
         )
         r.raise_for_status()
-        self.session.headers["X-Auth-Token"] = r.headers["X-Auth-Token"]
-        log.info("OME session established: %s", self.base_url)
+        token = r.headers.get("X-Auth-Token")
+        if not token:
+            raise ValueError("OME did not return X-Auth-Token")
+        self.session.headers["X-Auth-Token"] = token
+
+        # Store session ID for explicit DELETE on logout (avoids session pool exhaustion).
+        body = r.json()
+        self._session_id = body.get("Id")
+        if not self._session_id:
+            # Fallback: parse from Location header like /api/SessionService/Sessions('12345')
+            loc = r.headers.get("Location", "")
+            if "Sessions(" in loc:
+                self._session_id = loc.split("Sessions(")[1].rstrip(")'\"")
+        log.info("OME session established: %s (id=%s)", self.base_url, self._session_id)
+
+    def disconnect(self) -> None:
+        if self._session_id:
+            try:
+                url = f"{self.base_url}/api/SessionService/Sessions('{self._session_id}')"
+                self.session.delete(url, timeout=10)
+                log.debug("OME session %s deleted", self._session_id)
+            except Exception as e:
+                log.debug("OME session delete failed (non-fatal): %s", e)
+            finally:
+                self._session_id = None
+        self.session.headers.pop("X-Auth-Token", None)
+
+    def reconnect(self) -> None:
+        self.disconnect()
+        self._connect()
 
     def get(self, path: str, **kwargs) -> dict:
         r = self.session.get(f"{self.base_url}{path}", timeout=30, **kwargs)
@@ -55,7 +89,6 @@ class OMESession:
             results.extend(data.get("value", []))
             next_link = data.get("@odata.nextLink")
             if next_link:
-                # nextLink is a full path or relative path
                 url = next_link if next_link.startswith("/") else "/" + next_link.split("/", 3)[-1]
                 params = {}
             else:
@@ -79,16 +112,13 @@ def _map(device: dict, inventory: list[dict]) -> common.DiscoveredFact:
     vendor = "Dell"
     model = device.get("Model", "")
 
-    # Processors: sum cores across all sockets
     procs = _sum_by_type(inventory, "serverProcessors")
     cores = sum(int(p.get("NumberOfCores", 0)) for p in procs)
 
-    # Memory: sum DIMM sizes (MiB → GiB)
     dims = _sum_by_type(inventory, "serverMemoryInfo")
     ram_mib = sum(int(d.get("Size", 0)) for d in dims)
     ram_gib = ram_mib // 1024
 
-    # Storage: sum disk sizes (bytes → GiB)
     disks = _sum_by_type(inventory, "serverStorageDiskView")
     storage_gib = sum(int(d.get("Size", 0)) for d in disks) // (1024 ** 3)
 
@@ -132,8 +162,8 @@ def main() -> None:
             common.flush(facts, dsn)
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code in (401, 403):
-                log.warning("OME session expired, re-authenticating")
-                session = OMESession(base_url, username, password, verify=verify)
+                log.warning("OME session expired, reconnecting")
+                session.reconnect()
             else:
                 log.error("OME collect error: %s", e)
         except Exception as e:

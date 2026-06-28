@@ -16,7 +16,7 @@ import os
 import time
 
 import intersight
-from intersight.api import compute_api, adapter_api
+from intersight.api import compute_api, storage_api
 from intersight.api_client import ApiClient
 from intersight.configuration import Configuration
 from intersight.signing import HttpSigningConfiguration
@@ -32,7 +32,7 @@ def _build_client(base_url: str, key_id: str, key_file: str, verify: bool) -> Ap
         key_id=key_id,
         private_key_path=key_file,
         signing_scheme="hs2019",
-        signing_algorithm="rsa-sha256",  # adjust to ecdsa-sha256 if using EC key
+        signing_algorithm="rsa-sha256",  # change to ecdsa-sha256 for EC keys
     )
     config = Configuration(host=base_url, signing_info=signing)
     config.verify_ssl = verify
@@ -54,21 +54,40 @@ def _list_all(api_fn, **kwargs) -> list:
     return results
 
 
+def _storage_gib(client: ApiClient, device_moid: str | None) -> int:
+    """Sum physical disk sizes (MiB) for the given registered device moid."""
+    if not device_moid:
+        return 0
+    try:
+        sapi = storage_api.StorageApi(client)
+        disks = _list_all(
+            sapi.get_storage_physical_disk_list,
+            filter=f"RegisteredDevice.Moid eq '{device_moid}'",
+        )
+        # StoragePhysicalDisk.size is in MiB per Intersight API
+        total_mib = sum(getattr(d, "size", 0) or 0 for d in disks)
+        return total_mib // 1024
+    except Exception as e:
+        log.debug("storage query failed for device %s: %s", device_moid, e)
+        return 0
+
+
+def _device_moid(server) -> str | None:
+    """Extract registered device moid from a compute object for cross-resource joins."""
+    rd = getattr(server, "registered_device", None)
+    if rd and hasattr(rd, "moid"):
+        return rd.moid
+    return None
+
+
 def collect(client: ApiClient) -> list[common.DiscoveredFact]:
     compute = compute_api.ComputeApi(client)
-    adapters = adapter_api.AdapterApi(client)
 
     rack_units = _list_all(compute.get_compute_rack_unit_list)
     blades = _list_all(compute.get_compute_blade_list)
-    servers = rack_units + blades
-
-    # Build NIC index keyed by parent server Moid for topology (not written
-    # to host_inventory — topology goes to InventoryRecord via BMC collector).
-    # Kept here as a reference for future enrichment.
-    # nics = {n.parent.moid: n for n in _list_all(adapters.get_adapter_host_eth_interface_list)}
 
     facts = []
-    for s in servers:
+    for s in rack_units + blades:
         try:
             service_tag = s.serial or ""
             if not service_tag:
@@ -77,18 +96,17 @@ def collect(client: ApiClient) -> list[common.DiscoveredFact]:
             vendor = s.vendor or "Cisco"
             model = s.model or ""
 
-            # num_cpus = socket count; individual processor details via separate API
-            # Use num_cpus * (cores per CPU from processor model) for accuracy,
-            # or fall back to num_cpus as socket count.
-            # TODO: expand /api/v1/processor/Units?$filter=Parent.Moid eq '<moid>'
-            # for exact core count. For now use num_cpus as a floor.
-            cores = (s.num_cpus or 0) * 1  # placeholder: 1 socket = reported as num_cpus
+            # num_threads = total logical processors across all sockets.
+            # Enterprise UCS servers run HT (2 threads/core), so ÷2 gives physical cores.
+            # Falls back to num_cpus (socket count) if num_threads is unavailable.
+            threads = getattr(s, "num_threads", None) or 0
+            cores = threads // 2 if threads > 0 else (s.num_cpus or 0)
+
             # total_memory is in MiB
             ram_gib = (s.total_memory or 0) // 1024
 
-            # storage_gib: not directly on ComputeRackUnit/Blade — requires
-            # /api/v1/storage/PhysicalDisks. TODO: implement disk expansion.
-            storage_gib = 0
+            dmoid = _device_moid(s)
+            storage = _storage_gib(client, dmoid)
 
             facts.append(common.DiscoveredFact(
                 service_tag=service_tag,
@@ -96,7 +114,7 @@ def collect(client: ApiClient) -> list[common.DiscoveredFact]:
                 model=model,
                 cores=cores,
                 ram_gib=ram_gib,
-                storage_gib=storage_gib,
+                storage_gib=storage,
             ))
         except Exception as e:
             log.warning("skipping server %s: %s", getattr(s, "serial", "?"), e)

@@ -8,10 +8,14 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1alpha1 "example.io/inventory/api/v1alpha1"
+	"example.io/inventory/pkg/inventory/bmh"
 	"example.io/inventory/pkg/store"
 )
 
@@ -19,11 +23,18 @@ import (
 // Value = BMH name = serviceTag in this system.
 const agentBMHLabel = "agent-install.openshift.io/bmh"
 
-var agentListGVK = schema.GroupVersionKind{
-	Group:   "agent-install.openshift.io",
-	Version: "v1beta1",
-	Kind:    "AgentList",
-}
+var (
+	agentListGVK = schema.GroupVersionKind{
+		Group:   "agent-install.openshift.io",
+		Version: "v1beta1",
+		Kind:    "AgentList",
+	}
+	bmhGVK = schema.GroupVersionKind{
+		Group:   "metal3.io",
+		Version: "v1alpha1",
+		Kind:    "BareMetalHost",
+	}
+)
 
 // InventoryRecordReconciler projects InventoryRecord status into Postgres.
 // It is the single write path from k8s state into the central fleet store.
@@ -46,6 +57,7 @@ type InventoryRecordReconciler struct {
 // +kubebuilder:rbac:groups=inventory.example.io,resources=inventoryrecords,verbs=get;list;watch
 // +kubebuilder:rbac:groups=inventory.example.io,resources=inventoryrecords/status,verbs=update;patch
 // +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal3.io,resources=baremetalhosts,verbs=get;list;watch
 
 func (r *InventoryRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var rec v1alpha1.InventoryRecord
@@ -53,7 +65,16 @@ func (r *InventoryRecordReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Wait until a collector has written identity — not inspected yet.
+	// Enrich status from a co-located BareMetalHost (same name+namespace).
+	// By convention the BMH is named after the serviceTag. This runs before the
+	// identity nil-check so that a fresh IR gets populated on first BMH inspection.
+	r.enrichFromBMH(ctx, &rec)
+
+	// Wait until identity is set — either by the BMH enrichment above, or by an
+	// external collector (OME/Intersight/UCS Central) writing directly to Postgres.
+	// For the Python-collector path the IR status may stay nil; those collectors
+	// write directly to host_inventory and the IR reconciler writes only declared
+	// fields (site/segment/class/bmc_*) via UpsertHost with COALESCE guards.
 	if rec.Status.Identity == nil {
 		return ctrl.Result{}, nil
 	}
@@ -159,8 +180,58 @@ func (r *InventoryRecordReconciler) resolveAllocation(ctx context.Context, servi
 	return nil, nil
 }
 
+// enrichFromBMH looks up the BareMetalHost with the same name+namespace as the
+// InventoryRecord. If Ironic has completed introspection (status.hardwareDetails
+// is present), it merges the hardware into the IR status in-memory. The caller
+// must then patch the status to persist it. Errors are non-fatal: if the BMH
+// does not exist or has not been inspected yet, enrichment is a no-op.
+func (r *InventoryRecordReconciler) enrichFromBMH(ctx context.Context, rec *v1alpha1.InventoryRecord) {
+	bmhObj := &unstructured.Unstructured{}
+	bmhObj.SetGroupVersionKind(bmhGVK)
+	if err := r.Get(ctx, types.NamespacedName{Name: rec.Name, Namespace: rec.Namespace}, bmhObj); err != nil {
+		return
+	}
+	hw, found, _ := unstructured.NestedMap(bmhObj.Object, "status", "hardwareDetails")
+	if !found {
+		return
+	}
+	inv := bmh.MapHardwareDetails(hw)
+	if inv == nil {
+		return
+	}
+	// Merge into rec.Status — only overwrite nil fields so an explicit status
+	// patch from an operator or test harness is not silently discarded.
+	if rec.Status.Identity == nil {
+		rec.Status.Identity = inv.Identity
+	}
+	if rec.Status.Compute == nil {
+		rec.Status.Compute = inv.Compute
+	}
+	if rec.Status.Storage == nil {
+		rec.Status.Storage = inv.Storage
+	}
+	if len(rec.Status.Network) == 0 {
+		rec.Status.Network = inv.Network
+	}
+}
+
 func (r *InventoryRecordReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Watch BareMetalHost changes and reconcile the InventoryRecord with the
+	// same name+namespace (by convention BMH name = serviceTag = IR name).
+	bmhType := &unstructured.Unstructured{}
+	bmhType.SetGroupVersionKind(bmhGVK)
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.InventoryRecord{}).
+		Watches(bmhType, handler.EnqueueRequestsFromMapFunc(
+			func(_ context.Context, obj client.Object) []reconcile.Request {
+				return []reconcile.Request{
+					{NamespacedName: types.NamespacedName{
+						Name:      obj.GetName(),
+						Namespace: obj.GetNamespace(),
+					}},
+				}
+			},
+		)).
 		Complete(r)
 }

@@ -90,6 +90,16 @@ func key(obj map[string]interface{}) string {
 	return str(obj, "metadata", "name")
 }
 
+// MapHardwareDetails extracts a DiscoveredInventory from a BareMetalHost's
+// status.hardwareDetails map. Called by the InventoryRecord reconciler when a
+// BMH with the same name/namespace is found and has been inspected.
+func MapHardwareDetails(hw map[string]interface{}) *v1alpha1.DiscoveredInventory {
+	// hw is the status.hardwareDetails sub-map; wrap it in a top-level map
+	// so the existing accessor helpers (which expect the full object) work.
+	obj := map[string]interface{}{"status": map[string]interface{}{"hardwareDetails": hw}}
+	return toInventory(obj)
+}
+
 func toInventory(obj map[string]interface{}) *v1alpha1.DiscoveredInventory {
 	hw := []string{"status", "hardwareDetails"}
 	bmcAddr := str(obj, "spec", "bmc", "address")
