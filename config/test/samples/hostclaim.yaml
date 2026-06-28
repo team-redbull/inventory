@@ -1,0 +1,16 @@
+# Test HostClaim: request 2 class-a hosts for test-cluster.
+apiVersion: inventory.example.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: test-claim
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      inventory.example.io/class: a
+  count: 2
+  targetHostedCluster:
+    name: test-cluster
+    namespace: default
+  nodePool: test-cluster-workers
+  allowSpill: false

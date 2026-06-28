@@ -1,0 +1,27 @@
+# Minimal stub CRD for HyperShift NodePool.
+# Covers only the fields this project reads via unstructured.
+# Do NOT use in production — install the real CRD from MCE.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nodepools.hypershift.openshift.io
+  annotations:
+    inventory.example.io/stub: "true"
+spec:
+  group: hypershift.openshift.io
+  versions:
+    - name: v1beta1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
+  scope: Namespaced
+  names:
+    plural: nodepools
+    singular: nodepool
+    kind: NodePool
+    listKind: NodePoolList

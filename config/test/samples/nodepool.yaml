@@ -1,0 +1,17 @@
+# Fake NodePool for the test HostedCluster.
+# In production this is created by HyperShift alongside the HostedCluster.
+apiVersion: hypershift.openshift.io/v1beta1
+kind: NodePool
+metadata:
+  name: test-cluster-workers
+  namespace: default
+spec:
+  clusterName: test-cluster
+  replicas: 0
+  platform:
+    type: Agent
+    agent:
+      agentLabelSelector:
+        matchLabels: {}
+status:
+  replicas: 0

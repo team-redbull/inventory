@@ -107,7 +107,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 - [ ] Populate `mce_reach` (mce, site, segment) for every MCE.
 
 ### Cross-cutting `[ ]`
-- [ ] Dev/test harness outside air-gap: sushy-emulator, Intersight/UCSPE emulator, Redfish mockups; transport abstraction.
+- [x] Dev/test harness outside air-gap: `docker-compose.yaml` (Postgres), `hack/dev-setup.sh` (kind + stub CRDs), `hack/mock/ome|intersight|ucsm` (mock servers), `config/test/samples/` (test CRs). See `docs/testing.md`.
 - [ ] Air-gap pipeline: skopeo mirroring, internal Git mirror, CA trust.
 - [ ] Observability: controller metrics, lease-transition audit, claim-pending reasons in UI.
 - [ ] HA review: Postgres failover; confirm store outage stalls only new moves.

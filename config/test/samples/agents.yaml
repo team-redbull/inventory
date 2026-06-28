@@ -1,0 +1,25 @@
+# Fake Agents for SRV001 and SRV002 (class=a, unbound).
+# The agent-install.openshift.io/bmh label is what BMAC sets in production;
+# here it is set manually to simulate the paired state.
+---
+apiVersion: agent-install.openshift.io/v1beta1
+kind: Agent
+metadata:
+  name: agent-srv001
+  namespace: default
+  labels:
+    inventory.example.io/class: a
+    agent-install.openshift.io/bmh: SRV001
+spec:
+  approved: true
+---
+apiVersion: agent-install.openshift.io/v1beta1
+kind: Agent
+metadata:
+  name: agent-srv002
+  namespace: default
+  labels:
+    inventory.example.io/class: a
+    agent-install.openshift.io/bmh: SRV002
+spec:
+  approved: true

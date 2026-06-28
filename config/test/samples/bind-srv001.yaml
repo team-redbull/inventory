@@ -1,0 +1,23 @@
+# Apply this to simulate SRV001 being bound to test-cluster.
+# Triggers the projector to call store.SetAllocation within 30s.
+#
+#   kubectl apply -f config/test/samples/bind-srv001.yaml
+#
+# Undo:
+#   kubectl apply -f config/test/samples/agents.yaml
+apiVersion: agent-install.openshift.io/v1beta1
+kind: Agent
+metadata:
+  name: agent-srv001
+  namespace: default
+  labels:
+    inventory.example.io/class: a
+    agent-install.openshift.io/bmh: SRV001
+spec:
+  approved: true
+  clusterDeploymentName:
+    name: test-cluster
+    namespace: default
+status:
+  inventory:
+    hostname: worker-01.test-cluster.dc1.local

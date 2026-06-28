@@ -1,0 +1,74 @@
+# Three test hosts: two Dell (OME), one Cisco (UCSM).
+# Matches the seed data served by hack/mock/ome and hack/mock/ucsm.
+---
+apiVersion: inventory.example.io/v1alpha1
+kind: InventoryRecord
+metadata:
+  name: SRV001
+  namespace: default
+  labels:
+    inventory.example.io/class: a
+spec:
+  serviceTag: SRV001
+  source: ome
+  placement:
+    site: dc1
+    rack: rack-01
+    homeMce: dev
+  bmc:
+    address: 192.168.1.101
+    type: idrac
+    bootMACAddress: "aa:bb:cc:dd:ee:01"
+    credentialsRef:
+      name: srv001-bmc-creds
+      namespace: default
+  network:
+    segment: vlan-100
+---
+apiVersion: inventory.example.io/v1alpha1
+kind: InventoryRecord
+metadata:
+  name: SRV002
+  namespace: default
+  labels:
+    inventory.example.io/class: a
+spec:
+  serviceTag: SRV002
+  source: ome
+  placement:
+    site: dc1
+    rack: rack-01
+    homeMce: dev
+  bmc:
+    address: 192.168.1.102
+    type: idrac
+    bootMACAddress: "aa:bb:cc:dd:ee:02"
+    credentialsRef:
+      name: srv002-bmc-creds
+      namespace: default
+  network:
+    segment: vlan-100
+---
+apiVersion: inventory.example.io/v1alpha1
+kind: InventoryRecord
+metadata:
+  name: SRV003
+  namespace: default
+  labels:
+    inventory.example.io/class: b
+spec:
+  serviceTag: SRV003
+  source: ucsm
+  placement:
+    site: dc1
+    rack: rack-02
+    homeMce: dev
+  bmc:
+    address: 192.168.1.103
+    type: ucsm
+    bootMACAddress: "aa:bb:cc:dd:ee:03"
+    credentialsRef:
+      name: srv003-bmc-creds
+      namespace: default
+  network:
+    segment: vlan-200
