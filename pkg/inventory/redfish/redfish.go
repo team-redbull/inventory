@@ -17,7 +17,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -27,6 +29,57 @@ import (
 
 	v1alpha1 "example.io/inventory/api/v1alpha1"
 )
+
+// privateRanges are the IPv4/IPv6 management-network ranges a BMC address must
+// fall within. Public IPs are rejected to prevent SSRF credential exfiltration.
+var privateRanges = func() []*net.IPNet {
+	cidrs := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"169.254.0.0/16", // link-local (some BMCs)
+		"fc00::/7",       // IPv6 ULA
+		"fe80::/10",      // IPv6 link-local
+	}
+	out := make([]*net.IPNet, 0, len(cidrs))
+	for _, c := range cidrs {
+		_, n, _ := net.ParseCIDR(c)
+		out = append(out, n)
+	}
+	return out
+}()
+
+func isPrivateIP(ip net.IP) bool {
+	for _, n := range privateRanges {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// validateBMCHost rejects any host that resolves to a public IP.
+// Bare IPs are checked directly; hostnames are resolved and every returned
+// address must be private. Returns a non-nil error when the check fails.
+func validateBMCHost(host string) error {
+	if ip := net.ParseIP(host); ip != nil {
+		if !isPrivateIP(ip) {
+			return fmt.Errorf("BMC host %q is not a private/management address", host)
+		}
+		return nil
+	}
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("cannot resolve BMC host %q: %w", host, err)
+	}
+	for _, a := range addrs {
+		ip := net.ParseIP(a)
+		if ip == nil || !isPrivateIP(ip) {
+			return fmt.Errorf("BMC host %q resolves to non-private address %s", host, a)
+		}
+	}
+	return nil
+}
 
 // Enrich queries the Redfish BMC described by rec.Spec.BMC and returns a
 // DiscoveredInventory. Returns nil (non-fatal) when the host is not a
@@ -43,16 +96,29 @@ func Enrich(ctx context.Context, c client.Client, rec *v1alpha1.InventoryRecord)
 		return nil // IPMI-only or Cisco-proprietary — no Redfish endpoint
 	}
 
+	// Validate the resolved host is within a private/management range before
+	// any authenticated request (SSRF guard).
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return nil
+	}
+	if err := validateBMCHost(u.Hostname()); err != nil {
+		return nil
+	}
+
 	if rec.Spec.BMC.CredentialsRef.Name == "" {
 		return nil
 	}
 
-	ns := rec.Spec.BMC.CredentialsRef.Namespace
-	if ns == "" {
-		ns = rec.Namespace
-	}
+	// Always resolve the Secret in the InventoryRecord's own namespace.
+	// Never honor credentialsRef.Namespace from the spec — doing so would let
+	// an operator-controlled InventoryRecord exfiltrate Secrets from other
+	// namespaces (confused-deputy / cross-namespace disclosure).
 	secret := &corev1.Secret{}
-	if err := c.Get(ctx, types.NamespacedName{Name: rec.Spec.BMC.CredentialsRef.Name, Namespace: ns}, secret); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{
+		Name:      rec.Spec.BMC.CredentialsRef.Name,
+		Namespace: rec.Namespace,
+	}, secret); err != nil {
 		return nil
 	}
 	username := string(secret.Data["username"])
@@ -65,7 +131,12 @@ func Enrich(ctx context.Context, c client.Client, rec *v1alpha1.InventoryRecord)
 		http: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: strings.HasPrefix(baseURL, "http://")}, // only skip verify for plain http
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: strings.HasPrefix(baseURL, "http://")},
+			},
+			// Never follow redirects: a redirect to a public host would bypass
+			// the validateBMCHost check and send credentials off-network.
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
 			},
 		},
 		base:     baseURL,
