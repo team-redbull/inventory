@@ -44,6 +44,8 @@ type HostClaimReconciler struct {
 
 // +kubebuilder:rbac:groups=inventory.example.io,resources=hostclaims,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=inventory.example.io,resources=hostclaims/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=agent-install.openshift.io,resources=agents,verbs=get;list;watch
+// +kubebuilder:rbac:groups=hypershift.openshift.io,resources=nodepools,verbs=get;list;watch;update;patch
 
 func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var hc v1alpha1.HostClaim

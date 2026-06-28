@@ -28,6 +28,19 @@ import (
 )
 
 // GVKs of the version-drifting CRDs we touch via unstructured.
+// Verified against upstream source (2026-06):
+//   Agent    github.com/openshift/assisted-service      api/v1beta1/agent_types.go
+//   NodePool github.com/openshift/hypershift            api/hypershift/v1beta1/agent.go + nodepool_types.go
+//
+// Field paths confirmed:
+//   Agent.spec.approved                                 bool (required)
+//   Agent.spec.clusterDeploymentName.name               string (kubebuilder printcolumn confirms path)
+//   NodePool.spec.replicas                              int32
+//   NodePool.spec.platform.agent.agentLabelSelector     *metav1.LabelSelector (AgentNodePoolPlatform)
+//   NodePool.status.replicas                            int32 "latest observed number of nodes in pool"
+//
+// TODO (needs live cluster): compile against exact MCE version in use and run
+// integration test to confirm status.replicas tracks bound Agents as expected.
 var (
 	agentListGVK = schema.GroupVersionKind{Group: "agent-install.openshift.io", Version: "v1beta1", Kind: "AgentList"}
 	nodePoolGVK  = schema.GroupVersionKind{Group: "hypershift.openshift.io", Version: "v1beta1", Kind: "NodePool"}

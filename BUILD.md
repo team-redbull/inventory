@@ -49,8 +49,8 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 
 ### 6. Binder (Agent) `[~]`
 - [x] AgentBinder: AvailableHosts (approved+unbound Agents by class), EnsureNodePool, BoundCount.
-- [ ] **Pin API versions** (assisted-service / HyperShift import paths + field names) and compile against the cluster.
-- [ ] Exclude hard-held hosts (once hard holdings are wired).
+- [x] **Pin API versions**: field paths verified against upstream source (assisted-service api/v1beta1, hypershift api/hypershift/v1beta1). GVKs, `spec.approved`, `spec.clusterDeploymentName.name`, `spec.platform.agent.agentLabelSelector`, `status.replicas` all confirmed. RBAC markers added for Agent (list/watch) and NodePool (get/list/watch/update/patch). Cluster integration test still needed (see TODO in binder.go).
+- [ ] Exclude hard-held hosts — blocked: nothing writes `host_reservation_member` yet; `host_capacity` view must exclude hard-reserved service tags from `available` once membership is wired.
 
 ### 7. Collectors `[~]`
 - [x] Go: `Collector` interface + registry + `bmh` stub. `switchtopo` superseded.
