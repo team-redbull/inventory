@@ -166,7 +166,7 @@ inventory/
     binder.go                  AgentBinder (live) + CAPM3Binder (stub)
   pkg/inventory/          collectors
     collector.go               Collector interface + registry
-    bmh/ ome/ ucs/ adapters  (switchtopo/ superseded — topology from BMC)
+    bmh/ ome/ intersight/ ucsm/ adapters  (switchtopo/ superseded — topology from BMC)
   internal/controller/
     hostclaim_controller.go    the everyday allocation reconciler
   cmd/manager/              per-MCE manager entrypoint

@@ -34,11 +34,12 @@ const (
 type CollectorSource string
 
 const (
-	SourceBMH     CollectorSource = "bmh"     // Metal3 BareMetalHost introspection (primary)
-	SourceOME     CollectorSource = "ome"     // OpenManage Enterprise (enrichment / non-Metal3)
-	SourceUCS     CollectorSource = "ucs"     // UCS Central or Intersight PVA (enrichment / non-Metal3)
-	SourceRedfish CollectorSource = "redfish" // direct, whitebox / no aggregator
-	SourceSwitch  CollectorSource = "switch"  // superseded: switch-side MAC poll not used; topology comes from BMC (iDRAC Connection View / Intersight fabric)
+	SourceBMH        CollectorSource = "bmh"        // Metal3 BareMetalHost introspection (primary)
+	SourceOME        CollectorSource = "ome"        // OpenManage Enterprise — Dell aggregator
+	SourceIntersight CollectorSource = "intersight" // Intersight PVA — Cisco aggregator (REST/HMAC)
+	SourceUCSM       CollectorSource = "ucsm"       // UCS Manager / UCS Central — Cisco aggregator (XML API)
+	SourceRedfish    CollectorSource = "redfish"    // direct Redfish, whitebox / no aggregator
+	SourceSwitch     CollectorSource = "switch"     // superseded: switch-side MAC poll not used; topology comes from BMC (iDRAC Connection View / Intersight fabric)
 )
 
 // LeaseState mirrors the central store's ownership state machine.
@@ -63,7 +64,7 @@ type InventoryRecordSpec struct {
 
 	// Source names the collector responsible for primary discovery.
 	// Metal3-managed hosts use "bmh"; non-Metal3 hosts use an aggregator/redfish.
-	// +kubebuilder:validation:Enum=bmh;ome;ucs;redfish
+	// +kubebuilder:validation:Enum=bmh;ome;intersight;ucsm;redfish
 	Source CollectorSource `json:"source"`
 
 	// Class optionally overrides automatic classification. If empty, the
