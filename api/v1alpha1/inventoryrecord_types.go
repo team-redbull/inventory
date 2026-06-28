@@ -38,7 +38,7 @@ const (
 	SourceOME     CollectorSource = "ome"     // OpenManage Enterprise (enrichment / non-Metal3)
 	SourceUCS     CollectorSource = "ucs"     // UCS Central or Intersight PVA (enrichment / non-Metal3)
 	SourceRedfish CollectorSource = "redfish" // direct, whitebox / no aggregator
-	SourceSwitch  CollectorSource = "switch"  // leaf LLDP/MAC tables (topology only)
+	SourceSwitch  CollectorSource = "switch"  // superseded: switch-side MAC poll not used; topology comes from BMC (iDRAC Connection View / Intersight fabric)
 )
 
 // LeaseState mirrors the central store's ownership state machine.
@@ -155,9 +155,12 @@ type AllocationStatus struct {
 	NodeName      string `json:"nodeName,omitempty"`      // node name once joined
 }
 
-// DiscoveredInventory is what a Collector returns. Topology is owned by the
-// switch collector and merged separately; a hardware collector that leaves it
-// nil must not erase an existing topology slice.
+// DiscoveredInventory is what a Collector returns. Topology is populated by
+// the BMC aggregator collectors (OME via iDRAC Connection View, UCS/Intersight
+// via fabric port mapping) and merged per-collector. A collector that leaves
+// Topology nil must not erase an existing topology slice.
+// Note: BMC-sourced topology may leave LeafMgmt empty and LeafName as a
+// chassis-id MAC rather than a resolved switch name — enrich offline if needed.
 type DiscoveredInventory struct {
 	Identity *Identity      `json:"identity,omitempty"`
 	BMC      *BMCInfo       `json:"bmc,omitempty"`

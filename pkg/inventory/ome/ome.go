@@ -89,6 +89,13 @@ func (c *Collector) fetchInventory(ctx context.Context, deviceID int64) (*v1alph
 	//              serverMemoryDevices -> sum Size (bytes) -> RAMGiB
 	//   storage:   serverArrayDisks -> per-disk Size/MediaType/Model/Wwn; sum TotalGiB
 	//   network:   serverNetworkInterfaces -> ports -> PermanentMACAddress, LinkSpeed
+	//   topology:  iDRAC Connection View via OME — available pre-boot, no switch creds.
+	//              GET /api/DeviceService/Devices(<id>)/InventoryDetails('serverNetworkInterfaces')
+	//              -> ports[].partnerInformation: {partnerMacAddress, partnerPortId, partnerSystemName}
+	//              Map each port to TopologyLink{NICMac, LeafName=partnerSystemName,
+	//              LeafPort=partnerPortId, LeafMgmt=""}. LeafMgmt not available from
+	//              iDRAC Connection View; LeafName may be chassis-id MAC if switch
+	//              does not advertise sysName in LLDP.
 	panic("not implemented: map OME InventoryDetails -> v1alpha1.DiscoveredInventory")
 }
 

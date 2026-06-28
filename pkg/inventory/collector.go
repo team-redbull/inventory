@@ -30,8 +30,8 @@ type Credentials struct {
 type Observation struct {
 	// Key correlates to InventoryRecord.spec.serviceTag.
 	Key string
-	// Inventory is the canonical discovered model. For the switch collector
-	// only the Topology slice is populated.
+	// Inventory is the canonical discovered model. OME/UCS collectors populate
+	// Topology from BMC (iDRAC Connection View / Intersight fabric mapping).
 	Inventory *v1alpha1.DiscoveredInventory
 	// Raw optionally carries the untouched vendor payload for audit.
 	Raw []byte
@@ -67,15 +67,15 @@ func (r *Registry) Collectors() []Collector { return r.collectors }
 //     rec := lookupInventoryRecord(o.Key)           // match by service tag
 //     if rec == nil { continue }                    // unknown host -> skip/alert
 //
-//     // OWNERSHIP: a hardware collector (ome/ucs/redfish) writes
-//     // identity/bmc/compute/storage/network. It MUST NOT touch Topology.
-//     // The switch collector writes ONLY Topology. Merge accordingly:
-//     if o.Inventory.Identity != nil { rec.Status.Identity = o.Inventory.Identity }
-//     if o.Inventory.Compute  != nil { rec.Status.Compute  = o.Inventory.Compute }
+//     // OWNERSHIP: each collector writes only its owned fields; nil = don't erase.
+//     // OME/UCS write identity/bmc/compute/storage/network/topology (topology from
+//     // iDRAC Connection View or Intersight fabric mapping — available pre-boot).
+//     // BMH writes identity/bmc/compute/storage/network only (no topology —
+//     // Ironic does not surface iDRAC Connection View data).
+//     if o.Inventory.Identity  != nil { rec.Status.Identity  = o.Inventory.Identity }
+//     if o.Inventory.Compute   != nil { rec.Status.Compute   = o.Inventory.Compute }
 //     ... etc ...
-//     if collector.Source() == SourceSwitch {
-//         rec.Status.Topology = o.Inventory.Topology      // switch owns this
-//     }
+//     if o.Inventory.Topology  != nil { rec.Status.Topology  = o.Inventory.Topology }
 //
 //     // spec.Placement is NEVER written here — it stays GitOps-authoritative.
 //     rec.Status.Collection = CollectionStatus{Source: collector.Source(), LastSuccess: now}

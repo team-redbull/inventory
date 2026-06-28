@@ -1,11 +1,9 @@
-// Package switchtopo implements the inventory.Collector that produces ONLY the
-// topology slice: server NIC -> leaf name/port/mgmt-IP.
+// Package switchtopo is SUPERSEDED and not wired.
 //
-// Authoritative source is the switch side, not the BMC: pull each leaf's
-// LLDP-neighbor table and MAC-address table (gNMI / NETCONF / SNMP) and join on
-// MAC against the NICs already in inventory. This avoids trusting every BMC's
-// iDRAC Connection View (which only yields chassis-id + port, often a MAC, and
-// no mgmt IP) and works uniformly across Dell and Cisco.
+// Topology is now sourced from the BMC aggregators: OME via iDRAC Connection
+// View (per-port LLDP, available pre-boot) and Intersight via fabric port
+// mapping. Switch-side MAC/LLDP poll is not used — it requires switch creds,
+// doesn't work on powered-off hosts, and adds no value given the BMC path.
 package switchtopo
 
 import (

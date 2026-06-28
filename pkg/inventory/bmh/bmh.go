@@ -7,7 +7,7 @@
 // metal3-io/baremetal-operator Go module (which drifts across MCE releases). The
 // metal3.io/v1alpha1 apiVersion and the fields below are stable across MCE 2.7
 // and 2.10. OME/UCS/redfish collectors enrich fields BMH lacks; topology comes
-// from the switch collector.
+// from OME (iDRAC Connection View) or Intersight (fabric port mapping).
 package bmh
 
 import (
@@ -132,7 +132,7 @@ func toInventory(obj map[string]interface{}) *v1alpha1.DiscoveredInventory {
 	st.DiskCount = int32(len(st.Disks))
 	inv.Storage = st
 
-	// Network — NIC MACs are the join key the switch collector needs.
+	// Network — NIC MACs are the join key OME/UCS use to populate topology.
 	nics, _, _ := unstructured.NestedSlice(obj, append(hw, "nic")...)
 	for _, raw := range nics {
 		n, ok := raw.(map[string]interface{})
@@ -180,11 +180,9 @@ func bmcTypeFromAddress(addr string) v1alpha1.BMCType {
 var _ inventory.Collector = (*Collector)(nil)
 
 // -------------------------------------------------------------------------
-// TOPOLOGY-FROM-INTROSPECTION (alternative to the switch collector):
-// If you enable LLDP collection in the IPA ramdisk, Ironic's introspection data
-// carries per-interface LLDP TLVs (chassis id, port id, sometimes sysName).
-// That gives leaf links captured at inspect time without switch credentials —
-// but it's point-in-time and inherits the chassis-id caveats. The live
-// switch-side poll (pkg/inventory/switchtopo) stays authoritative; this is read
-// from the stored Ironic inspection data / HardwareData, NOT from BMH status.
+// TOPOLOGY NOT POPULATED BY THIS COLLECTOR:
+// Ironic introspection can carry per-interface LLDP TLVs if enabled in the
+// IPA ramdisk, but BMH status does not surface them. Topology comes from OME
+// (iDRAC Connection View per-port LLDP) or Intersight (fabric port mapping).
+// BMC-sourced topology is available pre-boot and works without switch creds.
 // -------------------------------------------------------------------------

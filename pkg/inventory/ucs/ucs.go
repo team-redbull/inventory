@@ -50,6 +50,12 @@ func (c *Collector) List(ctx context.Context) ([]inventory.Observation, error) {
 	//      /api/v1/adapter/HostEthInterfaces           -> NIC MACs (topology join key)
 	// 3) If you care about the LOGICAL view, follow server.Profile -> associated
 	//    compute.Blade Moid; do not read the profile as hardware.
+	// 4) topology: Intersight fabric port mapping — available pre-boot, no switch creds.
+	//    GET /api/v1/network/ElementSummaries or /api/v1/adapter/HostEthInterfaces
+	//    -> each interface carries PeerInterfaceDn (fabric interconnect port dn).
+	//    Resolve Dn to switch name + port. Map to TopologyLink{NICMac, LeafName,
+	//    LeafPort, LeafMgmt}. For blade chassis: fabric interconnect is the leaf;
+	//    port is the IOM slot/port. LeafMgmt = fabric interconnect mgmt IP.
 	//
 	// Auth: Intersight signs each request (HMAC-SHA256 over a digest of method,
 	// path, date, body) using APIKeyID + APIKeyPEM. TODO: implement the signer.
