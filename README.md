@@ -5,10 +5,10 @@ multi-MCE-per-site, multi-site. Request capacity by class for a HostedCluster,
 move hosts between MCEs when needed, and see/forecast the whole region from one
 store.
 
-> **Status: early scaffold.** The data spine (CRDs + store) is built; the
-> everyday allocation path is a working skeleton; the overflow/move machinery is
-> designed and stubbed. See [`BUILD.md`](BUILD.md) for the component status table
-> and task list.
+> **Status: allocation path complete; enrollment + lifecycle in progress.** CRDs,
+> store, claim reconciler, binder, and all collectors (BMH/Redfish/OME/Intersight/UCS)
+> are built. Enroll controller, lifecycle controller, move machinery, and the capacity
+> UI are next. See [`BUILD.md`](BUILD.md) for the component status table and task list.
 
 ## Start here
 
@@ -24,8 +24,9 @@ store.
 api/v1alpha1/        CRDs: HostClaim, InventoryRecord
 pkg/store/           central store: lease CAS, inventory, lifecycle, capacity, holdings, forecast
 pkg/binder/          NodePool binding seam (AgentBinder live; CAPM3 stub)
-pkg/inventory/       collectors (bmh primary; ome/ucs/switch/redfish)
-internal/controller/ claim reconciler (everyday allocation)
+pkg/inventory/       Go collectors: bmh (Metal3 introspection), redfish (whitebox fallback)
+collectors/          Python collectors: ome, cisco_intersight, ucscentral — write directly to Postgres
+internal/controller/ claim reconciler + IR projector
 cmd/manager/         per-MCE manager entrypoint
 db/schema.sql        store schema (Postgres)
 workflows/           Argo WorkflowTemplates: host-install (PXE|Redfish), verify-teardown, verify-install
@@ -59,6 +60,6 @@ methods (Redfish vs IPMI+PXE) and the teardown/verification differ per host.
 
 ## Contributing
 
-Pick a `[ ]` or `[~]` item from [`BUILD.md`](BUILD.md). The everyday path
-(reconciler write-back, binder version-pin, BMH collector + classifier) is the
-highest-leverage area to make end-to-end allocation real.
+Pick a `[ ]` or `[~]` item from [`BUILD.md`](BUILD.md). The enroll controller (#9)
+is the highest-leverage next task — it closes the loop from discovered host to
+in-service allocation.

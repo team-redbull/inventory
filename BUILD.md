@@ -10,7 +10,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | # | Component | Plane | Type | Role | Status |
 |---|-----------|-------|------|------|--------|
 | 1 | `HostClaim` CRD | Git/MCE | build | Declarative capacity request (selector+count+cluster) | `[x]` |
-| 2 | `InventoryRecord` CRD | Git/MCE | build | Host: declared spec + discovered status | `[x]` |
+| 2 | `InventoryRecord` CRD | Git/MCE | build | Host: declared spec + runtime status (lease/allocation); hardware facts in Postgres | `[x]` |
 | 3 | Store schema | Store | build | inventory/lease/allocation/state/reservation/reach + views | `[x]` |
 | 4 | Store Go (interfaces+pg) | Store | build | lease CAS, inventory, lifecycle, capacity, reservations, forecast, eligibility | `[x]` |
 | 5 | Claim reconciler | MCE | build | Everyday local allocation (HostClaim → NodePool) | `[x]` |
@@ -36,7 +36,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 
 ### Done — refine as needed
 - [x] **HostClaim CRD** — selector/count/targetHostedCluster/nodePool/allowSpill; phase + unsatisfiableReason.
-- [x] **InventoryRecord CRD** — declared spec (no cluster), discovered status, ownership/allocation reflection.
+- [x] **InventoryRecord CRD** — declared spec (no cluster), runtime status (ownership + allocation only). Hardware facts live in Postgres, not in the CR.
 - [x] **Store schema** — `host_inventory`, `host_lease`, `host_allocation`, `host_state`, `host_reservation(+member)`, `mce_reach`; views `host_capacity`, `region_headroom`, `host_eligible_mce`.
 - [x] **Store Go** — `LeaseStore` (CAS Transition + Acquire/Release helpers), `InventoryStore`, `LifecycleStore` (SetHostPhase + EligibleMCEs), `CapacityStore`, `ReservationStore`, `ForecastStore`; pgx impl.
 
@@ -55,11 +55,11 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 ### 7. Collectors `[~]`
 - [x] Go: `Collector` interface + registry + `bmh` stub. `switchtopo` superseded.
 - [x] Python: `collectors/ome.py`, `collectors/cisco_intersight.py`, `collectors/ucscentral.py` — real implementations using vendor SDKs. Write directly to `host_inventory` (bypass Go seam).
-- [x] **Finish `bmh`** (Go): `MapHardwareDetails` exported from `pkg/inventory/bmh`; InventoryRecord reconciler calls `enrichFromBMH` on every reconcile — reads co-located BMH (same name+namespace), merges `status.hardwareDetails` into IR status if inspected. Watches BMH changes to trigger IR reconcile. RBAC marker added.
+- [x] **Finish `bmh`** (Go): `MapHardwareDetails` exported from `pkg/inventory/bmh`; InventoryRecord reconciler calls `discoverFacts` on every reconcile — reads co-located BMH (same name+namespace), writes discovered facts directly to `store.UpsertHost` (not to IR status). Watches BMH changes to trigger IR reconcile. RBAC marker added.
 - [x] **OME session management**: store session ID from login response body; `disconnect()` issues `DELETE /api/SessionService/Sessions('{id}')` before reconnect (prevents session pool exhaustion on OME). Matches reference pattern from `dell_server_strategy.py`.
 - [x] **Finish `cisco_intersight.py`**: cores = `num_threads // 2` (logical→physical, HT assumed; falls back to socket count); storage via `storage_api.get_storage_physical_disk_list` filtered by `RegisteredDevice.Moid`.
 - [x] **`UpsertHost` COALESCE fix**: IR reconciler no longer stomps Python collector writes — `ON CONFLICT` uses `COALESCE(NULLIF(EXCLUDED.x,''), existing)` for text fields and `CASE WHEN > 0` for numeric fields.
-- [x] **`redfish` collector** (Go, `pkg/inventory/redfish`): per-host fallback for whitebox / generic BMC hosts. Resolves `spec.bmc.credentialsRef` Secret → queries Redfish `/redfish/v1/Systems` → extracts vendor/model/cores/RAM/storage. Wired into IR reconciler after BMH enrichment; only fires when `bmc.type=generic` and `status.identity` still nil. Handles all BMC URL schemes (redfish://, redfish+http://, idrac-virtualmedia://, ilo5://, bare IP). RBAC: Secrets get.
+- [x] **`redfish` collector** (Go, `pkg/inventory/redfish`): per-host fallback for whitebox / generic BMC hosts. Resolves `spec.bmc.credentialsRef` Secret → queries Redfish `/redfish/v1/Systems` → extracts vendor/model/cores/RAM/storage. Wired into IR reconciler after BMH enrichment; only fires when `bmc.type=generic` and BMH has no introspection data. Handles all BMC URL schemes (redfish://, redfish+http://, idrac-virtualmedia://, ilo5://, bare IP). RBAC: Secrets get. Security: SSRF guard (RFC1918 allowlist + redirect blocking), cross-namespace Secret exfiltration prevented (always uses `rec.Namespace`).
 
 ### 8. Classifier `[x]` — superseded by InfraEnv
 Class is declared in `InventoryRecord.spec.class` (GitOps, set at enrollment). No runtime derivation needed.

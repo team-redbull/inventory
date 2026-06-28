@@ -45,14 +45,15 @@ make dev-store
 # 3. Apply test InventoryRecords, Agents, NodePool, HostClaim
 make dev-samples
 
-# 4. Simulate discovered facts (projector skips until identity is set)
-kubectl patch inventoryrecord SRV001 --type=merge --subresource=status \
-  -p '{"status":{"identity":{"serviceTag":"SRV001","vendor":"Dell","model":"PowerEdge R750"}}}'
-kubectl patch inventoryrecord SRV002 --type=merge --subresource=status \
-  -p '{"status":{"identity":{"serviceTag":"SRV002","vendor":"Dell","model":"PowerEdge R750"}}}'
-
-# 5. Run the manager
+# 4. Run the manager (IR reconciler writes declared fields to store on first reconcile)
 make dev-run MCE=dev
+
+# 5. Optionally simulate hardware facts from a Python collector:
+#    (the IR reconciler handles declared fields; Python collectors write hardware facts)
+psql postgres://postgres:fleet@localhost/fleet <<'SQL'
+UPDATE host_inventory SET vendor='Dell', model='PowerEdge R750', cores=56, ram_gib=512
+WHERE service_tag IN ('SRV001','SRV002');
+SQL
 
 # 6. Check store state
 make dev-status
@@ -107,14 +108,10 @@ Tests the actual Go controller logic against real k8s objects and real Postgres.
 # Cluster and store must be up (steps 1+2 above)
 make dev-samples
 
-# Patch status.identity so the projector triggers (collectors do this in production):
-kubectl patch inventoryrecord SRV001 --type=merge --subresource=status \
-  -p '{"status":{"identity":{"serviceTag":"SRV001","vendor":"Dell","model":"PowerEdge R750"}}}'
-kubectl patch inventoryrecord SRV002 --type=merge --subresource=status \
-  -p '{"status":{"identity":{"serviceTag":"SRV002","vendor":"Dell","model":"PowerEdge R750"}}}'
-
 make dev-run MCE=dev
 # Manager logs should show: postgres store connected, reconciling SRV001/SRV002
+# The IR reconciler writes declared spec fields (site/segment/class/bmc) to the store
+# on the first reconcile — no identity gate, no kubectl patch needed.
 
 # Verify projector wrote to store:
 psql postgres://postgres:fleet@localhost/fleet -c "SELECT * FROM host_inventory;"
@@ -185,7 +182,7 @@ psql postgres://postgres:fleet@localhost/fleet \
 ### 5. OME collector mock
 
 Serves the OpenManage Enterprise REST endpoints.
-Run this when implementing / testing the `pkg/inventory/ome` collector.
+Run this when testing the `collectors/ome.py` Python collector.
 
 ```bash
 make mock-ome
@@ -211,7 +208,7 @@ Seed data: SRV001 + SRV002 (Dell PowerEdge R750, 2×28 cores, 512 GiB RAM, 2×96
 ### 6. Intersight collector mock
 
 Serves the Intersight PVA REST endpoints.
-Run this when implementing / testing the `pkg/inventory/intersight` collector.
+Run this when testing the `collectors/cisco_intersight.py` Python collector.
 
 ```bash
 make mock-intersight
@@ -235,7 +232,7 @@ Seed data: SRV003 (Cisco UCSC-C240-M6SN, 2×28 cores, 512 GiB RAM). Auth (HMAC) 
 ### 7. UCSM collector mock
 
 Serves the UCS Manager XML API (`POST /nuova`).
-Run this when implementing / testing the `pkg/inventory/ucscentral` collector.
+Run this when testing the `collectors/ucscentral.py` Python collector.
 
 ```bash
 make mock-ucscentral

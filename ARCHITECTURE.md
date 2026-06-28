@@ -50,16 +50,22 @@ NodePools, InventoryRecords) plus the controllers that act on them. The data pat
 
 ---
 
-## 3. Data model — declared vs discovered
+## 3. Data model — declared vs runtime
 
 `InventoryRecord` (a.k.a. Host) splits cleanly:
 
 - **spec** (declared, GitOps, authored at enrollment): serviceTag, BMC address +
-  method + credentialsRef, `network.segment`, physical placement. The cluster
+  method + credentialsRef, `network.segment`, physical placement, class. The cluster
   binding is deliberately **not** here.
-- **status** (discovered/runtime, controller-written): hardware from introspection,
-  reflected ownership, and the **allocation outcome** (which HostedCluster/NodePool
-  consumes it).
+- **status** (runtime, controller-written): reflected ownership lease and the
+  **allocation outcome** (which HostedCluster/NodePool consumes it). Hardware facts
+  are **not** cached in the CR — they live exclusively in the central store.
+
+**Postgres is the single source of truth for hardware facts** (vendor, model, cores,
+RAM, storage). Go collectors (BMH introspection, Redfish) and Python collectors (OME,
+Intersight, UCS Central) all write directly to `host_inventory`. The IR reconciler
+reads only spec fields; it never caches hardware in status. This eliminates the
+dual-truth problem where k8s status and Postgres could drift.
 
 `HostClaim` is the interface: a label `selector` + `count` + `targetHostedCluster`
 (+ optional `nodePool`, `allowSpill`). One selector spans "any N of class A" through
@@ -93,7 +99,7 @@ MCE move; even then the lease in the store knows where the host is.
 
 ## 5. The flows
 
-**Enrollment & discovery.** The switch-topology collector (or OME/Intersight)
+**Enrollment & discovery.** An aggregator (OME, Intersight) or the switch MAC table
 notices new hardware in a site and registers it as a `discovered` host with its
 segment. To bring it into service you pick an MCE from `EligibleMCEs` (computed
 from segment reach), then the **`host-install` Argo WorkflowTemplate** runs —
@@ -157,22 +163,24 @@ gate holds the lease and quarantines the host.
 inventory/
   api/v1alpha1/            CRDs
     hostclaim_types.go         claim interface
-    inventoryrecord_types.go   host: declared spec + discovered status
+    inventoryrecord_types.go   host: declared spec + runtime status (lease/allocation)
     groupversion_info.go
-  pkg/store/              central store
+  pkg/store/              central store — single source of truth for hardware facts
     store.go                   interfaces (lease/inventory/lifecycle/capacity/reservation/forecast)
     postgres.go                pgx implementation
   pkg/binder/             NodePool binding seam
     binder.go                  AgentBinder (live) + CAPM3Binder (stub)
-  pkg/inventory/          collectors
+  pkg/inventory/          Go collectors — write discovered facts directly to Postgres
     collector.go               Collector interface + registry
-    bmh/  (Go — reads Metal3 BareMetalHost k8s objects)
-  collectors/                Python — vendor SDK collectors, write directly to Postgres
+    bmh/                       Metal3 BareMetalHost introspection (primary, via k8s unstructured)
+    redfish/                   per-host Redfish fallback for whitebox/generic BMC hosts
+  collectors/             Python collectors — vendor SDK, write directly to Postgres
     ome.py                     Dell OME REST (requests)
     cisco_intersight.py        Cisco Intersight PVA (intersight SDK, HMAC auth)
     ucscentral.py              Cisco UCS Central (ucscentralsdk, XML API)
   internal/controller/
     hostclaim_controller.go    the everyday allocation reconciler
+    inventoryrecord_controller.go  IR → store projector (declared fields + Go-side discovery)
   cmd/manager/              per-MCE manager entrypoint
   workflows/               Argo WorkflowTemplates
     host-install.yaml          enroll: branches Redfish vs IPMI+PXE
