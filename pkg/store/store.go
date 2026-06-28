@@ -95,9 +95,9 @@ type LifecycleStore interface {
 	// physical host matches.
 	SetHostPhase(ctx context.Context, serviceTag string, phase HostPhase, note string) error
 
-	// EligibleMCEs lists MCEs that could adopt this host, by provisioning reach
-	// (segment match always; Redfish hosts also roam within their site). This is
-	// the "which MCE can I put it in" answer for a discovered host.
+	// EligibleMCEs lists MCEs that could adopt this host. One installation segment
+	// per site means segment match returns all MCEs in the host's site — the
+	// "which MCE can I put it in" answer for a discovered host.
 	EligibleMCEs(ctx context.Context, serviceTag string) ([]string, error)
 }
 

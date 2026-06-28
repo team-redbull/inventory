@@ -86,8 +86,8 @@ always has a **home MCE that holds its BMH** (the operational grip):
   excluded from the claimable pool. Still gripped for repair.
 - **decommissioning** — being wiped/removed.
 
-The only BMH-less moment is the transient `Free` lease window during a cross-MCE
-move; even then the lease in the store knows where the host is.
+The only BMH-less moment is the transient `Free` lease window during an intra-site
+MCE move; even then the lease in the store knows where the host is.
 
 ---
 

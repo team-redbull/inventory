@@ -80,16 +80,12 @@ CREATE TABLE IF NOT EXISTS mce_reach (
     PRIMARY KEY (mce, segment)
 );
 
--- Eligible MCEs per host: L2-segment match always works; a Redfish-virtualmedia
--- host additionally roams to any MCE in its site.
+-- Eligible MCEs per host: one installation segment (native VLAN) per site,
+-- so segment match covers all MCEs in that site for any boot method.
 CREATE OR REPLACE VIEW host_eligible_mce AS
 SELECT DISTINCT i.service_tag, r.mce
 FROM host_inventory i
-JOIN mce_reach r ON (
-        r.segment = i.segment
-     OR ((i.bmc_address LIKE 'redfish%' OR i.bmc_address LIKE 'idrac-virtualmedia%')
-         AND r.site = i.site)
-);
+JOIN mce_reach r ON r.segment = i.segment;
 
 -- Per (site, class, owner_mce). available/spare exclude maintenance hosts.
 CREATE OR REPLACE VIEW host_capacity AS
