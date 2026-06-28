@@ -1,0 +1,82 @@
+# Intersight collector — polls Cisco Intersight PVA and writes hardware facts to Postgres.
+# Auth uses HMAC-signed requests: key ID + RSA private key PEM file.
+# The PEM is mounted from a Secret as a file; INTERSIGHT_KEY_FILE points at the mount path.
+#
+# Required Secrets:
+#   intersight-credentials:
+#     POSTGRES_URL          — postgres://user:pass@host/db
+#     INTERSIGHT_URL        — https://intersight.example.com  (on-prem PVA)
+#     INTERSIGHT_KEY_ID     — the API key ID from Intersight
+#   intersight-api-key:
+#     key.pem               — RSA private key PEM (from Intersight API key setup)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: intersight-credentials
+  namespace: fleet-collectors
+type: Opaque
+stringData:
+  POSTGRES_URL: "postgres://fleet:CHANGEME@postgres.fleet.svc/fleet"
+  INTERSIGHT_URL: "https://intersight.example.com"
+  INTERSIGHT_KEY_ID: "CHANGEME"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: intersight-api-key
+  namespace: fleet-collectors
+type: Opaque
+stringData:
+  key.pem: |
+    -----BEGIN RSA PRIVATE KEY-----
+    CHANGEME
+    -----END RSA PRIVATE KEY-----
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collector-intersight
+  namespace: fleet-collectors
+  labels:
+    app: collector-intersight
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: collector-intersight
+  template:
+    metadata:
+      labels:
+        app: collector-intersight
+    spec:
+      containers:
+        - name: collector
+          image: registry.example.com/fleet/collectors:latest
+          command: ["python", "cisco_intersight.py"]
+          envFrom:
+            - secretRef:
+                name: intersight-credentials
+          env:
+            - name: INTERSIGHT_KEY_FILE
+              value: /secrets/intersight/key.pem
+            - name: POLL_INTERVAL
+              value: "300"
+            - name: INTERSIGHT_VERIFY_SSL
+              value: "true"
+          volumeMounts:
+            - name: api-key
+              mountPath: /secrets/intersight
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: api-key
+          secret:
+            secretName: intersight-api-key
+      restartPolicy: Always

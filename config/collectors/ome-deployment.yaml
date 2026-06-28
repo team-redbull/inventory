@@ -1,0 +1,59 @@
+# OME collector — polls Dell OpenManage Enterprise and writes hardware facts to Postgres.
+# One Deployment per OME instance. For multiple OME servers, duplicate with different
+# names and Secrets.
+#
+# Required Secret (ome-credentials):
+#   POSTGRES_URL  — postgres://user:pass@host/db
+#   OME_URL       — https://ome.mgmt.example.com
+#   OME_USERNAME  — admin
+#   OME_PASSWORD  — ...
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ome-credentials
+  namespace: fleet-collectors
+type: Opaque
+stringData:
+  POSTGRES_URL: "postgres://fleet:CHANGEME@postgres.fleet.svc/fleet"
+  OME_URL: "https://ome.mgmt.example.com"
+  OME_USERNAME: "admin"
+  OME_PASSWORD: "CHANGEME"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collector-ome
+  namespace: fleet-collectors
+  labels:
+    app: collector-ome
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: collector-ome
+  template:
+    metadata:
+      labels:
+        app: collector-ome
+    spec:
+      containers:
+        - name: collector
+          image: registry.example.com/fleet/collectors:latest
+          command: ["python", "ome.py"]
+          envFrom:
+            - secretRef:
+                name: ome-credentials
+          env:
+            - name: POLL_INTERVAL
+              value: "300"
+            - name: OME_VERIFY_SSL
+              value: "true"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      restartPolicy: Always

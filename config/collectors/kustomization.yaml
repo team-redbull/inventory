@@ -1,0 +1,5 @@
+resources:
+  - namespace.yaml
+  - ome-deployment.yaml
+  - intersight-deployment.yaml
+  - ucscentral-deployment.yaml

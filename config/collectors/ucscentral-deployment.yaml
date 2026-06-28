@@ -1,0 +1,60 @@
+# UCS Central collector — polls Cisco UCS Central XML API and writes hardware facts to Postgres.
+# One Deployment per UCS Central domain.
+#
+# Required Secret (ucscentral-credentials):
+#   POSTGRES_URL          — postgres://user:pass@host/db
+#   UCS_CENTRAL_IP        — ucscentral.mgmt.example.com
+#   UCS_CENTRAL_USERNAME  — admin
+#   UCS_CENTRAL_PASSWORD  — ...
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ucscentral-credentials
+  namespace: fleet-collectors
+type: Opaque
+stringData:
+  POSTGRES_URL: "postgres://fleet:CHANGEME@postgres.fleet.svc/fleet"
+  UCS_CENTRAL_IP: "ucscentral.mgmt.example.com"
+  UCS_CENTRAL_USERNAME: "admin"
+  UCS_CENTRAL_PASSWORD: "CHANGEME"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collector-ucscentral
+  namespace: fleet-collectors
+  labels:
+    app: collector-ucscentral
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: collector-ucscentral
+  template:
+    metadata:
+      labels:
+        app: collector-ucscentral
+    spec:
+      containers:
+        - name: collector
+          image: registry.example.com/fleet/collectors:latest
+          command: ["python", "ucscentral.py"]
+          envFrom:
+            - secretRef:
+                name: ucscentral-credentials
+          env:
+            - name: POLL_INTERVAL
+              value: "300"
+            - name: UCS_CENTRAL_PORT
+              value: "443"
+            - name: UCS_CENTRAL_SECURE
+              value: "true"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      restartPolicy: Always
