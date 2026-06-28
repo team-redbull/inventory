@@ -74,9 +74,10 @@ func main() {
 
 		st := store.NewPG(pool)
 		if err := (&controller.InventoryRecordReconciler{
-			Client: mgr.GetClient(),
-			Store:  st,
-			MCE:    mceName,
+			Client:         mgr.GetClient(),
+			Store:          st,
+			MCE:            mceName,
+			AgentNamespace: agentNamespace,
 		}).SetupWithManager(mgr); err != nil {
 			log.Error(err, "unable to set up InventoryRecord reconciler")
 			os.Exit(1)
