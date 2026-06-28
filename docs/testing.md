@@ -28,7 +28,7 @@ No real hardware, no MCE, no OpenShift required.
 | BareMetalHost CRD (Metal3) | Stub CRD in `config/test/crds/` |
 | OME REST API | `go run ./hack/mock/ome` (`:8081`) |
 | Intersight PVA REST API | `go run ./hack/mock/intersight` (`:8082`) |
-| UCSM XML API | `go run ./hack/mock/ucsm` (`:8083`) |
+| UCS Central XML API | `go run ./hack/mock/ucscentral` (`:8083`) |
 | Redfish / BMC | [sushy-emulator](https://docs.openstack.org/sushy-tools/latest/user/dynamic-emulator.html) (external, not included) |
 
 ---
@@ -235,10 +235,10 @@ Seed data: SRV003 (Cisco UCSC-C240-M6SN, 2×28 cores, 512 GiB RAM). Auth (HMAC) 
 ### 7. UCSM collector mock
 
 Serves the UCS Manager XML API (`POST /nuova`).
-Run this when implementing / testing the `pkg/inventory/ucsm` collector.
+Run this when implementing / testing the `pkg/inventory/ucscentral` collector.
 
 ```bash
-make mock-ucsm
+make mock-ucscentral
 # Listening on :8083
 
 # Login:
@@ -295,6 +295,6 @@ Deletes the kind cluster and removes docker compose volumes (including Postgres 
 | SRV001 | ome | a | dc1 | vlan-100 | `:8081` |
 | SRV002 | ome | a | dc1 | vlan-100 | `:8081` |
 | SRV003 | intersight | b | dc1 | vlan-200 | `:8082` |
-| SRV004 | ucsm | — | — | — | `:8083` |
+| SRV004 | ucscentral | — | — | — | `:8083` |
 
 `mce_reach` seed: MCE `dev` serves `dc1` on `vlan-100` and `vlan-200`, so all four hosts are eligible for the `dev` MCE.

@@ -53,7 +53,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 - [ ] Exclude hard-held hosts (once hard holdings are wired).
 
 ### 7. Collectors `[~]`
-- [x] Stubs: `Collector` interface + registry; `bmh`, `ome`, `intersight`, `ucsm`. `switchtopo` superseded — topology from BMC (iDRAC Connection View / Intersight fabric).
+- [x] Stubs: `Collector` interface + registry; `bmh`, `ome`, `intersight`, `ucscentral`. `switchtopo` superseded — topology from BMC (iDRAC Connection View / Intersight fabric).
 - [ ] **Finish `bmh`**: map introspection → store `UpsertHost`; per-host error isolation.
 - [ ] **Finish enrichment** `ome`/`ucs` (confirm Intersight vs UCS Central); `redfish` fallback.
 - [ ] **Switch topology**: poll leaves; MAC→NIC join; write segment + leaf/port.
@@ -107,7 +107,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 - [ ] Populate `mce_reach` (mce, site, segment) for every MCE.
 
 ### Cross-cutting `[ ]`
-- [x] Dev/test harness outside air-gap: `docker-compose.yaml` (Postgres), `hack/dev-setup.sh` (kind + stub CRDs), `hack/mock/ome|intersight|ucsm` (mock servers), `config/test/samples/` (test CRs). See `docs/testing.md`.
+- [x] Dev/test harness outside air-gap: `docker-compose.yaml` (Postgres), `hack/dev-setup.sh` (kind + stub CRDs), `hack/mock/ome|intersight|ucscentral` (mock servers), `config/test/samples/` (test CRs). See `docs/testing.md`.
 - [ ] Air-gap pipeline: skopeo mirroring, internal Git mirror, CA trust.
 - [ ] Observability: controller metrics, lease-transition audit, claim-pending reasons in UI.
 - [ ] HA review: Postgres failover; confirm store outage stalls only new moves.

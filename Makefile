@@ -69,9 +69,9 @@ mock-ome: ## Run mock OME server on :8081
 mock-intersight: ## Run mock Intersight PVA server on :8082
 	go run ./hack/mock/intersight
 
-.PHONY: mock-ucsm
-mock-ucsm: ## Run mock UCSM server on :8083
-	go run ./hack/mock/ucsm
+.PHONY: mock-ucscentral
+mock-ucscentral: ## Run mock UCS Central XML server on :8083
+	go run ./hack/mock/ucscentral
 
 .PHONY: dev-run
 dev-run: ## Run manager against dev cluster + local Postgres (set MCE=dev)

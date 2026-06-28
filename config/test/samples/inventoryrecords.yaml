@@ -1,5 +1,5 @@
 # Three test hosts: two Dell (OME), one Cisco (UCSM).
-# Matches the seed data served by hack/mock/ome and hack/mock/ucsm.
+# Matches the seed data served by hack/mock/ome and hack/mock/ucscentral.
 ---
 apiVersion: inventory.example.io/v1alpha1
 kind: InventoryRecord
@@ -58,14 +58,14 @@ metadata:
     inventory.example.io/class: b
 spec:
   serviceTag: SRV003
-  source: ucsm
+  source: ucscentral
   placement:
     site: dc1
     rack: rack-02
     homeMce: dev
   bmc:
     address: 192.168.1.103
-    type: ucsm
+    type: ucscentral
     bootMACAddress: "aa:bb:cc:dd:ee:03"
     credentialsRef:
       name: srv003-bmc-creds
