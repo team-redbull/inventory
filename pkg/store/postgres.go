@@ -182,6 +182,39 @@ func (p *PG) ListReservations(ctx context.Context) ([]Reservation, error) {
 	return out, rows.Err()
 }
 
+func (p *PG) AddReservationMember(ctx context.Context, reservationID, serviceTag string) error {
+	_, err := p.pool.Exec(ctx,
+		`INSERT INTO host_reservation_member (reservation_id, service_tag) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+		reservationID, serviceTag)
+	return err
+}
+
+func (p *PG) RemoveReservationMember(ctx context.Context, reservationID, serviceTag string) error {
+	_, err := p.pool.Exec(ctx,
+		`DELETE FROM host_reservation_member WHERE reservation_id=$1 AND service_tag=$2`,
+		reservationID, serviceTag)
+	return err
+}
+
+func (p *PG) ListReservationMembers(ctx context.Context, reservationID string) ([]string, error) {
+	rows, err := p.pool.Query(ctx,
+		`SELECT service_tag FROM host_reservation_member WHERE reservation_id=$1 ORDER BY service_tag`,
+		reservationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // ---- ForecastStore (region headroom / shortage) -----------------------------
 
 func (p *PG) RegionHeadroom(ctx context.Context, class string) ([]Headroom, error) {

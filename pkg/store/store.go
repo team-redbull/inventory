@@ -140,6 +140,13 @@ type ReservationStore interface {
 	UpsertReservation(ctx context.Context, r Reservation) error
 	DeleteReservation(ctx context.Context, id string) error
 	ListReservations(ctx context.Context) ([]Reservation, error)
+	// AddReservationMember pins a specific host to a hard reservation,
+	// removing it from the available pool until the reservation is deleted.
+	AddReservationMember(ctx context.Context, reservationID, serviceTag string) error
+	// RemoveReservationMember unpins a host from a hard reservation.
+	RemoveReservationMember(ctx context.Context, reservationID, serviceTag string) error
+	// ListReservationMembers returns the service tags pinned to a reservation.
+	ListReservationMembers(ctx context.Context, reservationID string) ([]string, error)
 }
 
 // Headroom is the per-class regional planning row from region_headroom.

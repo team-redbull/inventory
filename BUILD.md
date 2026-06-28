@@ -14,7 +14,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | 3 | Store schema | Store | build | inventory/lease/allocation/state/reservation/reach + views | `[x]` |
 | 4 | Store Go (interfaces+pg) | Store | build | lease CAS, inventory, lifecycle, capacity, reservations, forecast, eligibility | `[x]` |
 | 5 | Claim reconciler | MCE | build | Everyday local allocation (HostClaim → NodePool) | `[x]` |
-| 6 | Binder (Agent) | MCE | build | NodePool agentLabelSelector binding | `[~]` |
+| 6 | Binder (Agent) | MCE | build | NodePool agentLabelSelector binding | `[x]` |
 | 7 | Collectors | MCE | build | Push inventory/topology to store (bmh/ome/ucs/switch/redfish) | `[~]` |
 | 8 | Classifier | MCE | stock | Class declared in `InventoryRecord.spec`; InfraEnv per class stamps `agentLabels` → superseded by #19 | `[x]` |
 | 9 | Enroll controller | MCE | build | Lease acquire + BMH create + creds wiring | `[ ]` |
@@ -47,10 +47,10 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 - [x] **Maintenance-aware availability**: `availableHosts` uses `store.Capacity` (excludes maintenance/decommissioning via `host_capacity` view) when store is wired; falls back to Agent count.
 - [x] **SpillRequester**: `StoreSpillRequester` writes to `host_spill_request` (upsert on shortfall, delete on satisfied). Fleet allocator (#12) reads that table. Wired in main.go when Postgres is present; nil otherwise (Unsatisfiable fallback).
 
-### 6. Binder (Agent) `[~]`
+### 6. Binder (Agent) `[x]`
 - [x] AgentBinder: AvailableHosts (approved+unbound Agents by class), EnsureNodePool, BoundCount.
 - [x] **Pin API versions**: field paths verified against upstream source (assisted-service api/v1beta1, hypershift api/hypershift/v1beta1). GVKs, `spec.approved`, `spec.clusterDeploymentName.name`, `spec.platform.agent.agentLabelSelector`, `status.replicas` all confirmed. RBAC markers added for Agent (list/watch) and NodePool (get/list/watch/update/patch). Cluster integration test still needed (see TODO in binder.go).
-- [ ] Exclude hard-held hosts — blocked: nothing writes `host_reservation_member` yet; `host_capacity` view must exclude hard-reserved service tags from `available` once membership is wired.
+- [x] Exclude hard-held hosts: `AddReservationMember`/`RemoveReservationMember`/`ListReservationMembers` added to `ReservationStore` + pg impl. `host_capacity` view now excludes hard-pinned service tags from `available` via `hard_held_hosts` helper view.
 
 ### 7. Collectors `[~]`
 - [x] Go: `Collector` interface + registry + `bmh` stub. `switchtopo` superseded.

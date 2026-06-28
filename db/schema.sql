@@ -102,7 +102,16 @@ SELECT DISTINCT i.service_tag, r.mce
 FROM host_inventory i
 JOIN mce_reach r ON r.segment = i.segment;
 
--- Per (site, class, owner_mce). available/spare exclude maintenance hosts.
+-- Hard-pinned service tags: hosts locked to a specific hard reservation.
+-- Excluded from available so they cannot be claimed by another NodePool.
+CREATE OR REPLACE VIEW hard_held_hosts AS
+SELECT DISTINCT rm.service_tag
+FROM host_reservation_member rm
+JOIN host_reservation hr ON hr.id = rm.reservation_id
+WHERE hr.hard
+  AND (hr.expires_at IS NULL OR hr.expires_at > now());
+
+-- Per (site, class, owner_mce). available/spare exclude maintenance + hard-held hosts.
 CREATE OR REPLACE VIEW host_capacity AS
 SELECT
     i.site,
@@ -110,7 +119,8 @@ SELECT
     l.owner_mce,
     count(*)                                                            AS total,
     count(*) FILTER (WHERE a.service_tag IS NULL AND l.state='Owned'
-                       AND coalesce(s.phase,'in_service')='in_service') AS available,
+                       AND coalesce(s.phase,'in_service')='in_service'
+                       AND i.service_tag NOT IN (SELECT service_tag FROM hard_held_hosts)) AS available,
     count(*) FILTER (WHERE a.service_tag IS NULL AND l.state='Free'
                        AND coalesce(s.phase,'in_service')='in_service') AS spare_free,
     count(*) FILTER (WHERE coalesce(s.phase,'in_service')='maintenance')AS maintenance,
