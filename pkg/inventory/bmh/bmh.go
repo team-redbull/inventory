@@ -1,25 +1,28 @@
 // Package bmh implements the inventory.Collector backed by Metal3
 // BareMetalHost objects. This is the PRIMARY discovered-hardware source for any
-// host Metal3 manages: Ironic introspection (the IPA ramdisk) already wrote a
-// normalized, vendor-neutral inventory into status.hardwareDetails at
-// registration. No BMC API call, no vendor branching — read the CRD in-cluster.
+// host Metal3 manages: Ironic introspection already wrote a normalized,
+// vendor-neutral inventory into status.hardwareDetails at registration.
 //
-// OME/UCS/redfish collectors are then only needed for (a) hosts Metal3 does NOT
-// manage and (b) enrichment fields BMH lacks (BMC firmware version, warranty,
-// firmware-compliance baselines). Topology still comes from the switch
-// collector (or from LLDP captured during introspection — see note below).
+// VERSION-INDEPENDENCE: read via unstructured so this binary does NOT import the
+// metal3-io/baremetal-operator Go module (which drifts across MCE releases). The
+// metal3.io/v1alpha1 apiVersion and the fields below are stable across MCE 2.7
+// and 2.10. OME/UCS/redfish collectors enrich fields BMH lacks; topology comes
+// from the switch collector.
 package bmh
 
 import (
 	"context"
 	"strings"
 
-	metal3v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "example.io/inventory/api/v1alpha1"
 	"example.io/inventory/pkg/inventory"
 )
+
+var bmhListGVK = schema.GroupVersionKind{Group: "metal3.io", Version: "v1alpha1", Kind: "BareMetalHostList"}
 
 type Collector struct {
 	c         client.Client
@@ -33,76 +36,96 @@ func New(c client.Client, namespace string) *Collector {
 func (c *Collector) Source() v1alpha1.CollectorSource { return v1alpha1.SourceBMH }
 
 func (c *Collector) List(ctx context.Context) ([]inventory.Observation, error) {
-	var list metal3v1alpha1.BareMetalHostList
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(bmhListGVK)
 	opts := []client.ListOption{}
 	if c.namespace != "" {
 		opts = append(opts, client.InNamespace(c.namespace))
 	}
-	if err := c.c.List(ctx, &list, opts...); err != nil {
+	if err := c.c.List(ctx, list, opts...); err != nil {
 		return nil, err
 	}
 
 	out := make([]inventory.Observation, 0, len(list.Items))
 	for i := range list.Items {
-		h := &list.Items[i]
-		hw := h.Status.HardwareDetails
-		if hw == nil {
-			// Not inspected yet (registering / inspecting). Skip; it'll appear
-			// on a later reconcile once introspection completes.
+		obj := list.Items[i].Object
+		if _, found, _ := unstructured.NestedMap(obj, "status", "hardwareDetails"); !found {
+			// Not inspected yet; it'll appear on a later reconcile.
 			continue
 		}
 		out = append(out, inventory.Observation{
-			Key:       key(h),
-			Inventory: toInventory(h),
+			Key:       key(obj),
+			Inventory: toInventory(obj),
 		})
 	}
 	return out, nil
 }
 
-// key correlates the BMH to an InventoryRecord. Prefer the hardware serial
-// (== Dell service tag / Cisco serial) so it matches spec.serviceTag set in
-// GitOps; fall back to the BMH name.
-func key(h *metal3v1alpha1.BareMetalHost) string {
-	if h.Status.HardwareDetails != nil {
-		if s := h.Status.HardwareDetails.SystemVendor.SerialNumber; s != "" {
-			return s
-		}
+// small nested accessors (k8s json decoder gives int64 for integers).
+func str(m map[string]interface{}, f ...string) string {
+	s, _, _ := unstructured.NestedString(m, f...)
+	return s
+}
+func i64(m map[string]interface{}, f ...string) int64 {
+	i, _, _ := unstructured.NestedInt64(m, f...)
+	return i
+}
+func num(m map[string]interface{}, f ...string) float64 {
+	if v, ok, _ := unstructured.NestedFloat64(m, f...); ok {
+		return v
 	}
-	return h.Name
+	if v, ok, _ := unstructured.NestedInt64(m, f...); ok {
+		return float64(v)
+	}
+	return 0
 }
 
-func toInventory(h *metal3v1alpha1.BareMetalHost) *v1alpha1.DiscoveredInventory {
-	hw := h.Status.HardwareDetails
+// key correlates the BMH to an InventoryRecord. Prefer the hardware serial
+// (== Dell service tag / Cisco serial) so it matches spec.serviceTag from
+// GitOps; fall back to the BMH name.
+func key(obj map[string]interface{}) string {
+	if s := str(obj, "status", "hardwareDetails", "systemVendor", "serialNumber"); s != "" {
+		return s
+	}
+	return str(obj, "metadata", "name")
+}
+
+func toInventory(obj map[string]interface{}) *v1alpha1.DiscoveredInventory {
+	hw := []string{"status", "hardwareDetails"}
+	bmcAddr := str(obj, "spec", "bmc", "address")
+
 	inv := &v1alpha1.DiscoveredInventory{
 		Identity: &v1alpha1.Identity{
-			ServiceTag: hw.SystemVendor.SerialNumber,
-			Vendor:     hw.SystemVendor.Manufacturer,
-			Model:      hw.SystemVendor.ProductName,
+			ServiceTag: str(obj, append(hw, "systemVendor", "serialNumber")...),
+			Vendor:     str(obj, append(hw, "systemVendor", "manufacturer")...),
+			Model:      str(obj, append(hw, "systemVendor", "productName")...),
 		},
 		BMC: &v1alpha1.BMCInfo{
-			Address: h.Spec.BMC.Address,
-			Type:    bmcTypeFromAddress(h.Spec.BMC.Address),
-			// NOTE: BMH gives BIOS version (hw.Firmware.BIOS.Version), not BMC
-			// firmware. Leave FirmwareVersion for the OME/redfish enrichment pass.
+			Address: bmcAddr,
+			Type:    bmcTypeFromAddress(bmcAddr),
+			// BMH gives BIOS version, not BMC firmware — leave for enrichment.
 		},
 		Compute: &v1alpha1.Compute{
-			CPUModel: hw.CPU.Model,
-			// hw.CPU.Count is logical CPU count; BMH does not expose socket count.
-			// Treat as cores for now, refine via enrichment if you need sockets.
-			CoresTotal: int32(hw.CPU.Count),
-			RAMGiB:     int64(hw.RAMMebibytes) / 1024,
+			CPUModel:   str(obj, append(hw, "cpu", "model")...),
+			CoresTotal: int32(i64(obj, append(hw, "cpu", "count")...)),
+			RAMGiB:     i64(obj, append(hw, "ramMebibytes")...) / 1024,
 		},
 	}
 
 	// Storage
 	st := &v1alpha1.Storage{}
-	for _, d := range hw.Storage {
-		gib := int64(d.SizeBytes) / (1024 * 1024 * 1024)
+	disks, _, _ := unstructured.NestedSlice(obj, append(hw, "storage")...)
+	for _, raw := range disks {
+		d, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		gib := i64(d, "sizeBytes") / (1024 * 1024 * 1024)
 		st.Disks = append(st.Disks, v1alpha1.Disk{
 			Type:    diskType(d),
 			SizeGiB: gib,
-			Model:   d.Model,
-			WWN:     d.WWN,
+			Model:   str(d, "model"),
+			WWN:     str(d, "wwn"),
 		})
 		st.TotalGiB += gib
 	}
@@ -110,11 +133,16 @@ func toInventory(h *metal3v1alpha1.BareMetalHost) *v1alpha1.DiscoveredInventory 
 	inv.Storage = st
 
 	// Network — NIC MACs are the join key the switch collector needs.
-	for _, n := range hw.NIC {
+	nics, _, _ := unstructured.NestedSlice(obj, append(hw, "nic")...)
+	for _, raw := range nics {
+		n, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
 		inv.Network = append(inv.Network, v1alpha1.NIC{
-			Name:     n.Name,
-			MAC:      n.MAC,
-			SpeedMbs: int64(n.SpeedGbps) * 1000,
+			Name:     str(n, "name"),
+			MAC:      str(n, "mac"),
+			SpeedMbs: int64(num(n, "speedGbps") * 1000),
 		})
 	}
 
@@ -122,11 +150,11 @@ func toInventory(h *metal3v1alpha1.BareMetalHost) *v1alpha1.DiscoveredInventory 
 }
 
 // diskType normalizes the rotational/type hints into ssd|hdd|nvme.
-func diskType(d metal3v1alpha1.Storage) string {
-	if t := strings.ToLower(string(d.Type)); t != "" {
+func diskType(d map[string]interface{}) string {
+	if t := strings.ToLower(str(d, "type")); t != "" {
 		return t // newer Metal3 sets Type directly (HDD/SSD/NVME)
 	}
-	if d.Rotational {
+	if rot, _, _ := unstructured.NestedBool(d, "rotational"); rot {
 		return "hdd"
 	}
 	return "ssd"
@@ -154,11 +182,9 @@ var _ inventory.Collector = (*Collector)(nil)
 // -------------------------------------------------------------------------
 // TOPOLOGY-FROM-INTROSPECTION (alternative to the switch collector):
 // If you enable LLDP collection in the IPA ramdisk, Ironic's introspection data
-// carries per-interface LLDP TLVs (chassis id, port id, sometimes sysName /
-// mgmt address). That gives you leaf links captured at inspect time without
-// switch credentials — but it's point-in-time and inherits the same chassis-id
-// caveats (often a MAC, not a hostname). The live switch-side poll
-// (pkg/inventory/switchtopo) stays the authoritative source; introspection LLDP
-// is a credential-free complement. Note this data is NOT in BMH status — read
-// it from the stored Ironic inspection data / HardwareData object.
+// carries per-interface LLDP TLVs (chassis id, port id, sometimes sysName).
+// That gives leaf links captured at inspect time without switch credentials —
+// but it's point-in-time and inherits the chassis-id caveats. The live
+// switch-side poll (pkg/inventory/switchtopo) stays authoritative; this is read
+// from the stored Ironic inspection data / HardwareData, NOT from BMH status.
 // -------------------------------------------------------------------------

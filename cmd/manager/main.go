@@ -5,8 +5,6 @@ import (
 	"flag"
 	"os"
 
-	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
-	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -23,8 +21,9 @@ var scheme = runtime.NewScheme()
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(inventoryv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(hyperv1.AddToScheme(scheme))
-	utilruntime.Must(aiv1beta1.AddToScheme(scheme))
+	// NodePool/Agent/BMH are accessed via unstructured (see pkg/binder,
+	// pkg/inventory/bmh), so their Go schemes are intentionally NOT registered —
+	// that's what keeps this image MCE-version-independent.
 }
 
 func main() {

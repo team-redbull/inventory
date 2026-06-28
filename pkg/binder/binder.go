@@ -3,29 +3,35 @@
 // (Assisted Installer), so AgentBinder is the live implementation; CAPM3Binder
 // is retained as a stub for the alternate flow.
 //
+// VERSION-INDEPENDENCE: this package talks to NodePool and Agent via
+// unstructured + the controller-runtime client, so the binary depends only on
+// apimachinery — NOT on the hypershift or assisted-service Go modules. Those
+// modules' import paths and field types drift across MCE releases, but the CRD
+// apiVersions and the small field surface we touch are stable. Result: ONE
+// manager image runs across MCE 2.7 (OCP 4.16) and MCE 2.10 (OCP 4.20).
+//
 // CLASS LABEL PREREQUISITE: AvailableHosts and the NodePool selector both key on
 // the Agent carrying inventory.example.io/class=<class>. The classifier sets the
 // class on the BareMetalHost at inspection; ensure it reaches the Agent too —
-// cleanest via an InfraEnv per class (spec.agentLabels{class: X}) so every host
-// booting that InfraEnv's ISO is labelled, or a tiny reconciler copying the BMH
-// label onto the Agent once it registers.
+// cleanest via an InfraEnv per class (spec.agentLabels{class: X}).
 package binder
 
 import (
 	"context"
 	"fmt"
 
-	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
-	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "example.io/inventory/api/v1alpha1"
 )
 
-// NOTE: pin these to the versions your MCE runs — the assisted-service and
-// HyperShift API import paths and a few field names have drifted across
-// releases (e.g. hypershift/api/v1beta1 vs hypershift/api/hypershift/v1beta1).
+// GVKs of the version-drifting CRDs we touch via unstructured.
+var (
+	agentListGVK = schema.GroupVersionKind{Group: "agent-install.openshift.io", Version: "v1beta1", Kind: "AgentList"}
+	nodePoolGVK  = schema.GroupVersionKind{Group: "hypershift.openshift.io", Version: "v1beta1", Kind: "NodePool"}
+)
 
 // Binder is the method-specific binding surface.
 type Binder interface {
@@ -51,19 +57,24 @@ var _ Binder = (*AgentBinder)(nil)
 
 // AvailableHosts counts approved, unbound Agents of the class in this MCE.
 func (b *AgentBinder) AvailableHosts(ctx context.Context, class string) (int, error) {
-	var agents aiv1beta1.AgentList
+	agents := &unstructured.UnstructuredList{}
+	agents.SetGroupVersionKind(agentListGVK)
+
 	opts := []client.ListOption{client.MatchingLabels{v1alpha1.LabelClass: class}}
 	if b.AgentNamespace != "" {
 		opts = append(opts, client.InNamespace(b.AgentNamespace))
 	}
-	if err := b.Client.List(ctx, &agents, opts...); err != nil {
+	if err := b.Client.List(ctx, agents, opts...); err != nil {
 		return 0, err
 	}
+
 	n := 0
 	for i := range agents.Items {
-		a := &agents.Items[i]
-		// approved + not yet bound to a ClusterDeployment = available to bind.
-		if a.Spec.Approved && a.Spec.ClusterDeploymentName == nil {
+		obj := agents.Items[i].Object
+		approved, _, _ := unstructured.NestedBool(obj, "spec", "approved")
+		// spec.clusterDeploymentName is an object {name,namespace} once bound.
+		boundTo, _, _ := unstructured.NestedString(obj, "spec", "clusterDeploymentName", "name")
+		if approved && boundTo == "" {
 			n++
 		}
 	}
@@ -71,45 +82,56 @@ func (b *AgentBinder) AvailableHosts(ctx context.Context, class string) (int, er
 }
 
 // EnsureNodePool sizes an EXISTING NodePool and guarantees its agentLabelSelector
-// targets the class. The NodePool itself is created with the HostedCluster
-// (via GitOps); the claim only sizes/steers it.
+// targets the class. The NodePool itself is created with the HostedCluster (via
+// GitOps); the claim only sizes/steers it.
 func (b *AgentBinder) EnsureNodePool(ctx context.Context, hc v1alpha1.HostedClusterRef,
 	nodePool, class string, replicas int32) error {
 
-	var np hyperv1.NodePool
+	np := &unstructured.Unstructured{}
+	np.SetGroupVersionKind(nodePoolGVK)
 	key := client.ObjectKey{Namespace: hc.Namespace, Name: nodePool}
-	if err := b.Client.Get(ctx, key, &np); err != nil {
+	if err := b.Client.Get(ctx, key, np); err != nil {
 		return fmt.Errorf("get nodepool %s/%s: %w", hc.Namespace, nodePool, err)
 	}
 	orig := np.DeepCopy()
 
-	r := replicas
-	np.Spec.Replicas = &r
+	if err := unstructured.SetNestedField(np.Object, int64(replicas), "spec", "replicas"); err != nil {
+		return fmt.Errorf("set replicas: %w", err)
+	}
 
-	if np.Spec.Platform.Agent == nil {
-		np.Spec.Platform.Agent = &hyperv1.AgentPlatformSpec{}
+	// Merge the class into spec.platform.agent.agentLabelSelector.matchLabels,
+	// preserving any selector terms already present.
+	sel := []string{"spec", "platform", "agent", "agentLabelSelector", "matchLabels"}
+	labels, _, err := unstructured.NestedStringMap(np.Object, sel...)
+	if err != nil {
+		return fmt.Errorf("read agentLabelSelector: %w", err)
 	}
-	if np.Spec.Platform.Agent.AgentLabelSelector == nil {
-		np.Spec.Platform.Agent.AgentLabelSelector = &metav1.LabelSelector{}
+	if labels == nil {
+		labels = map[string]string{}
 	}
-	if np.Spec.Platform.Agent.AgentLabelSelector.MatchLabels == nil {
-		np.Spec.Platform.Agent.AgentLabelSelector.MatchLabels = map[string]string{}
+	labels[v1alpha1.LabelClass] = class
+	if err := unstructured.SetNestedStringMap(np.Object, labels, sel...); err != nil {
+		return fmt.Errorf("set agentLabelSelector: %w", err)
 	}
-	np.Spec.Platform.Agent.AgentLabelSelector.MatchLabels[v1alpha1.LabelClass] = class
 
-	return b.Client.Patch(ctx, &np, client.MergeFrom(orig))
+	return b.Client.Patch(ctx, np, client.MergeFrom(orig))
 }
 
 // BoundCount returns the NodePool's current (provisioned) replica count.
 func (b *AgentBinder) BoundCount(ctx context.Context, hc v1alpha1.HostedClusterRef,
 	nodePool string) (int32, error) {
 
-	var np hyperv1.NodePool
+	np := &unstructured.Unstructured{}
+	np.SetGroupVersionKind(nodePoolGVK)
 	key := client.ObjectKey{Namespace: hc.Namespace, Name: nodePool}
-	if err := b.Client.Get(ctx, key, &np); err != nil {
+	if err := b.Client.Get(ctx, key, np); err != nil {
 		return 0, err
 	}
-	return np.Status.Replicas, nil
+	r, _, err := unstructured.NestedInt64(np.Object, "status", "replicas")
+	if err != nil {
+		return 0, err
+	}
+	return int32(r), nil
 }
 
 // ---- CAPM3 implementation (stub for the alternate flow) ---------------------
