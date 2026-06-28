@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="624" viewBox="0 0 680 624" role="img">
+<title>Everyday allocation flow</title>
+<desc>A HostClaim in Git is delivered by ArgoCD to the target cluster's MCE, the claim reconciler resolves it local-first, the AgentBinder sizes the NodePool with the class selector, approved unbound Agents bind and provision, and nodes join while the allocation is written back to the store.</desc>
+<style>
+  text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+  .th{font-size:13px;font-weight:600;fill:#33322e;}
+  .ts{font-size:11px;fill:#6b6a63;}
+  .arr{stroke:#73726c;stroke-width:1.5;fill:none;}
+  rect.c-teal,.c-teal>rect{fill:#dcece7;stroke:#6fa89a;}
+  rect.c-blue,.c-blue>rect{fill:#dde6f1;stroke:#6f8fb2;}
+  rect.c-purple,.c-purple>rect{fill:#e7e1f1;stroke:#9180b3;}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect width="680" height="624" fill="#faf9f5"/>
+
+<g class="c-teal"><rect x="160" y="44" width="360" height="56" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="340" y="66" text-anchor="middle" dominant-baseline="central">HostClaim (Git)</text><text class="ts" x="340" y="84" text-anchor="middle" dominant-baseline="central">class × count → HostedCluster</text>
+<line x1="340" y1="102" x2="340" y2="136" class="arr" marker-end="url(#arrow)"/>
+
+<g class="c-blue"><rect x="160" y="140" width="360" height="56" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="340" y="162" text-anchor="middle" dominant-baseline="central">ArgoCD delivers</text><text class="ts" x="340" y="180" text-anchor="middle" dominant-baseline="central">to the target cluster's MCE (pull)</text>
+<line x1="340" y1="198" x2="340" y2="232" class="arr" marker-end="url(#arrow)"/>
+
+<g class="c-purple"><rect x="160" y="236" width="360" height="56" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="340" y="258" text-anchor="middle" dominant-baseline="central">Claim reconciler</text><text class="ts" x="340" y="276" text-anchor="middle" dominant-baseline="central">local-first resolve</text>
+<line x1="340" y1="294" x2="340" y2="328" class="arr" marker-end="url(#arrow)"/>
+
+<g class="c-blue"><rect x="160" y="332" width="360" height="56" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="340" y="354" text-anchor="middle" dominant-baseline="central">AgentBinder → NodePool</text><text class="ts" x="340" y="372" text-anchor="middle" dominant-baseline="central">replicas + agentLabelSelector = class</text>
+<line x1="340" y1="390" x2="340" y2="424" class="arr" marker-end="url(#arrow)"/>
+
+<g class="c-blue"><rect x="160" y="428" width="360" height="56" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="340" y="450" text-anchor="middle" dominant-baseline="central">Agents bind → provision</text><text class="ts" x="340" y="468" text-anchor="middle" dominant-baseline="central">approved, unbound Agents → RHCOS</text>
+<line x1="340" y1="486" x2="340" y2="520" class="arr" marker-end="url(#arrow)"/>
+
+<g class="c-teal"><rect x="160" y="524" width="360" height="56" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="340" y="546" text-anchor="middle" dominant-baseline="central">Nodes join + write allocation</text><text class="ts" x="340" y="564" text-anchor="middle" dominant-baseline="central">store.SetAllocation → "allocated"</text>
+
+<rect class="c-teal" x="150" y="602" width="11" height="11" rx="3"/><text class="ts" x="167" y="608" dominant-baseline="central">Git / outcome</text>
+<rect class="c-blue" x="300" y="602" width="11" height="11" rx="3"/><text class="ts" x="317" y="608" dominant-baseline="central">stock execution</text>
+<rect class="c-purple" x="470" y="602" width="11" height="11" rx="3"/><text class="ts" x="487" y="608" dominant-baseline="central">you build</text>
+</svg>

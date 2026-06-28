@@ -1,0 +1,65 @@
+# Authored at enrollment (Git). Only spec is set; status is filled by the
+# in-MCE controller + collectors after inspection. Note: no cluster here —
+# the cluster binding is an allocation OUTCOME that appears in status.
+apiVersion: inventory.example.io/v1alpha1
+kind: InventoryRecord
+metadata:
+  name: srv-ab12cd3
+  labels:
+    fleet.example.io/site: site-a
+    fleet.example.io/mce: mce-1
+    # set by the classifier (or declared via spec.class); Metal3 hostSelector
+    # matches this on the BareMetalHost:
+    inventory.example.io/class: a
+    inventory.example.io/service-tag: AB12CD3
+spec:
+  serviceTag: AB12CD3
+  source: bmh
+  # class: a            # optional manual override; otherwise derived
+  placement:
+    site: site-a
+    rack: r14
+    role: worker
+    homeMce: mce-1
+  bmc:
+    address: redfish-virtualmedia://10.20.14.31/redfish/v1/Systems/System.Embedded.1
+    type: idrac
+    # IPMI+PXE host instead:
+    #   address: ipmi://10.20.14.31
+    #   bootMACAddress: e4:43:4b:aa:bb:cc
+    credentialsRef:
+      name: bmc-srv-ab12cd3
+      namespace: openshift-machine-api
+  network:
+    segment: prov-vlan-220
+    leafHint: leaf-r14a
+---
+# IPMI + PXE-failover host (Redfish virtualmedia unreliable on this model).
+# Note ipmi:// address + bootMACAddress, and the segment that gates which MCEs
+# can adopt it (IPMI+PXE hosts are bound to their L2 segment).
+apiVersion: inventory.example.io/v1alpha1
+kind: InventoryRecord
+metadata:
+  name: srv-cd34ef5
+  labels:
+    fleet.example.io/site: site-a
+    inventory.example.io/class: a
+    inventory.example.io/service-tag: CD34EF5
+spec:
+  serviceTag: CD34EF5
+  source: bmh
+  placement:
+    site: site-a
+    rack: r14
+    role: worker
+    homeMce: mce-1
+  bmc:
+    address: ipmi://10.20.14.32
+    type: idrac
+    bootMACAddress: e4:43:4b:aa:bb:cd
+    credentialsRef:
+      name: bmc-srv-cd34ef5
+      namespace: openshift-machine-api
+  network:
+    segment: prov-vlan-220
+    leafHint: leaf-r14a

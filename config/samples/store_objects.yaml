@@ -1,0 +1,26 @@
+# NOT Kubernetes CRDs. These are REGION-scoped objects in the central store
+# (Postgres), authored via the Capacity API (optionally Git-synced) — there is no
+# hub cluster to hold them. Shown as YAML for clarity; the API takes JSON.
+
+# --- Holding / reservation: earmark capacity not yet bound to a cluster --------
+reservation:
+  id: proj-x-typea
+  class: a
+  count: 10
+  site: site-a            # omit => entire region
+  purpose: "Q3 project X pre-commit"
+  hard: false             # true pins specific hosts out of the pool (extension)
+  expiresAt: 2026-09-01T00:00:00Z
+
+# --- MCE reach: which provisioning segments each MCE serves (eligibility) ------
+# Drives "which MCE can adopt this host" for discovered hardware.
+mceReach:
+  - { mce: mce-1, site: site-a, segment: prov-vlan-220 }
+  - { mce: mce-1, site: site-a, segment: prov-vlan-221 }
+  - { mce: mce-2, site: site-a, segment: prov-vlan-230 }
+
+# --- Maintenance: take a host out of service (still gripped by its home MCE) ---
+hostPhase:
+  serviceTag: AB12CD3
+  phase: maintenance      # discovered | in_service | maintenance | decommissioning
+  note: "DIMM replacement, RMA #4412"

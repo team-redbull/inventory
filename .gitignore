@@ -1,0 +1,8 @@
+/bin/
+/dist/
+*.test
+*.out
+cover.*
+vendor/
+.env
+__debug_bin*

@@ -1,0 +1,19 @@
+domain: example.io
+layout:
+  - go.kubebuilder.io/v4
+projectName: inventory
+repo: example.io/inventory
+resources:
+  - api:
+      crdVersion: v1
+      namespaced: true
+    group: inventory
+    kind: HostClaim
+    version: v1alpha1
+  - api:
+      crdVersion: v1
+      namespaced: true
+    group: inventory
+    kind: InventoryRecord
+    version: v1alpha1
+version: "3"

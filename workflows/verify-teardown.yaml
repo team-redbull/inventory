@@ -1,0 +1,35 @@
+# Teardown gate: the move controller launches this before releasing the lease.
+# Pass => lease may go Free. Fail => lease HELD, host quarantined.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: verify-teardown
+spec:
+  entrypoint: verify
+  arguments:
+    parameters:
+      - { name: serviceTag }
+      - { name: namespace, value: "openshift-machine-api" }
+  templates:
+    - name: verify
+      inputs: { parameters: [{ name: serviceTag }, { name: namespace }] }
+      dag:
+        tasks:
+          - name: k8s-orphans          # BMH/Secret/Machine/NAD/PV gone, finalizers clear
+            template: check-orphans
+            arguments: { parameters: [{ name: serviceTag, value: "{{inputs.parameters.serviceTag}}" }] }
+          - name: disk-wiped           # ramdisk boot + wipefs/sgdisk readback
+            template: check-disks
+            arguments: { parameters: [{ name: serviceTag, value: "{{inputs.parameters.serviceTag}}" }] }
+    - name: check-orphans
+      inputs: { parameters: [{ name: serviceTag }] }
+      container:
+        image: REGISTRY/fleet-tools:latest
+        command: [/bin/fleetctl]
+        args: ["verify", "orphans", "--host", "{{inputs.parameters.serviceTag}}"]
+    - name: check-disks
+      inputs: { parameters: [{ name: serviceTag }] }
+      container:
+        image: REGISTRY/fleet-tools:latest
+        command: [/bin/fleetctl]
+        args: ["verify", "disks", "--host", "{{inputs.parameters.serviceTag}}"]

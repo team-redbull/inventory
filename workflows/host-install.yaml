@@ -1,0 +1,137 @@
+# Installing a host into an MCE is a workflow: the boot method branches
+# (Redfish virtual-media vs IPMI+PXE) and then converges on inspect → classify →
+# register. The enroll controller launches this per host; Ironic does the actual
+# boot once the BMH exists, so the method-specific work is preflight + the
+# correct BMH address scheme.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: host-install
+spec:
+  entrypoint: install
+  arguments:
+    parameters:
+      - { name: serviceTag }
+      - { name: method }        # "redfish" | "ipmi-pxe"
+      - { name: bmcAddress }    # redfish-virtualmedia://... or ipmi://...
+      - { name: bootMAC, value: "" }   # required for ipmi-pxe
+      - { name: namespace, value: "openshift-machine-api" }
+      - { name: class, value: "" }     # optional override; else derived
+  templates:
+    - name: install
+      inputs:
+        parameters:
+          - { name: serviceTag }
+          - { name: method }
+          - { name: bmcAddress }
+          - { name: bootMAC }
+          - { name: namespace }
+          - { name: class }
+      dag:
+        tasks:
+          # ---- method-specific preflight (one of these runs) ----
+          - name: redfish-prep
+            when: "{{inputs.parameters.method}} == redfish"
+            template: redfish-prep
+            arguments:
+              parameters: [{ name: bmcAddress, value: "{{inputs.parameters.bmcAddress}}" }]
+          - name: pxe-prep
+            when: "{{inputs.parameters.method}} == ipmi-pxe"
+            template: pxe-prep
+            arguments:
+              parameters:
+                - { name: bootMAC, value: "{{inputs.parameters.bootMAC}}" }
+          # ---- converge: create the BMH with the method-correct address ----
+          - name: create-bmh
+            dependencies: [redfish-prep, pxe-prep]
+            template: create-bmh
+            arguments:
+              parameters:
+                - { name: serviceTag, value: "{{inputs.parameters.serviceTag}}" }
+                - { name: bmcAddress, value: "{{inputs.parameters.bmcAddress}}" }
+                - { name: bootMAC, value: "{{inputs.parameters.bootMAC}}" }
+                - { name: namespace, value: "{{inputs.parameters.namespace}}" }
+          - name: wait-available
+            dependencies: [create-bmh]
+            template: wait-available
+            arguments:
+              parameters:
+                - { name: serviceTag, value: "{{inputs.parameters.serviceTag}}" }
+                - { name: namespace, value: "{{inputs.parameters.namespace}}" }
+          - name: classify
+            dependencies: [wait-available]
+            template: classify
+            arguments:
+              parameters:
+                - { name: serviceTag, value: "{{inputs.parameters.serviceTag}}" }
+                - { name: class, value: "{{inputs.parameters.class}}" }
+          - name: register
+            dependencies: [classify]
+            template: register
+            arguments:
+              parameters: [{ name: serviceTag, value: "{{inputs.parameters.serviceTag}}" }]
+
+    # --- Redfish path: ensure virtual-media reachable + firmware sane ---
+    - name: redfish-prep
+      inputs: { parameters: [{ name: bmcAddress }] }
+      container:
+        image: REGISTRY/fleet-tools:latest   # TODO: your air-gapped tools image
+        command: [/bin/fleetctl]
+        args: ["preflight", "redfish", "--bmc", "{{inputs.parameters.bmcAddress}}"]
+
+    # --- IPMI+PXE path: confirm provisioning DHCP/TFTP reaches the boot MAC ---
+    - name: pxe-prep
+      inputs: { parameters: [{ name: bootMAC }] }
+      container:
+        image: REGISTRY/fleet-tools:latest
+        command: [/bin/fleetctl]
+        args: ["preflight", "pxe", "--boot-mac", "{{inputs.parameters.bootMAC}}"]
+
+    # --- create the BareMetalHost (Ironic boots+inspects from here) ---
+    - name: create-bmh
+      inputs:
+        parameters: [{ name: serviceTag }, { name: bmcAddress }, { name: bootMAC }, { name: namespace }]
+      resource:
+        action: apply
+        manifest: |
+          apiVersion: metal3.io/v1alpha1
+          kind: BareMetalHost
+          metadata:
+            name: {{inputs.parameters.serviceTag}}
+            namespace: {{inputs.parameters.namespace}}
+          spec:
+            online: true
+            bootMACAddress: "{{inputs.parameters.bootMAC}}"
+            bmc:
+              address: "{{inputs.parameters.bmcAddress}}"
+              credentialsName: bmc-{{inputs.parameters.serviceTag}}
+
+    # --- wait until introspection completes (BMH reaches available) ---
+    - name: wait-available
+      inputs: { parameters: [{ name: serviceTag }, { name: namespace }] }
+      resource:
+        action: get
+        successCondition: status.provisioning.state == available
+        failureCondition: status.operationalStatus == error
+        manifest: |
+          apiVersion: metal3.io/v1alpha1
+          kind: BareMetalHost
+          metadata:
+            name: {{inputs.parameters.serviceTag}}
+            namespace: {{inputs.parameters.namespace}}
+
+    # --- classify from hardware, stamp the class label on BMH + Agent ---
+    - name: classify
+      inputs: { parameters: [{ name: serviceTag }, { name: class }] }
+      container:
+        image: REGISTRY/fleet-tools:latest
+        command: [/bin/fleetctl]
+        args: ["classify", "--host", "{{inputs.parameters.serviceTag}}", "--class", "{{inputs.parameters.class}}"]
+
+    # --- push inventory to the store + set phase in_service (spare) ---
+    - name: register
+      inputs: { parameters: [{ name: serviceTag }] }
+      container:
+        image: REGISTRY/fleet-tools:latest
+        command: [/bin/fleetctl]
+        args: ["register", "--host", "{{inputs.parameters.serviceTag}}", "--phase", "in_service"]

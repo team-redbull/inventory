@@ -1,0 +1,67 @@
+# Everyday case: any 3 hosts of class "a" as workers in HostedCluster
+# workload-blue. The allocator picks which 3; spill to other MCEs allowed.
+apiVersion: inventory.example.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: blue-typea-pool
+  labels:
+    fleet.example.io/site: site-a
+spec:
+  selector:
+    matchLabels:
+      inventory.example.io/class: a
+  count: 3
+  targetHostedCluster:
+    name: workload-blue
+    namespace: clusters          # HyperShift HostedCluster namespace
+  nodePool: workload-blue-workers
+  allowSpill: true
+---
+# Pinned case: this exact host, confined to its MCE (no spill).
+# count:1 + a selector resolving to one host = a hard pin. If unavailable/
+# ineligible the claim goes Unsatisfiable with a reason, not silently Pending.
+apiVersion: inventory.example.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: green-gpu-pin
+  labels:
+    fleet.example.io/site: site-a
+spec:
+  selector:
+    matchLabels:
+      inventory.example.io/service-tag: AB12CD3   # unique -> matches one host
+  count: 1
+  targetHostedCluster:
+    name: workload-green
+    namespace: clusters
+  allowSpill: false
+---
+# Capability case (preferred over pinning by name): any host that HAS an A100,
+# still fungible across every matching box.
+apiVersion: inventory.example.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: green-gpu-pool
+spec:
+  selector:
+    matchLabels:
+      inventory.example.io/class: gpu
+      inventory.example.io/gpu: a100
+  count: 2
+  targetHostedCluster:
+    name: workload-green
+    namespace: clusters
+---
+# Minimal: 2 of class "a", default worker pool inferred, spill allowed (default).
+apiVersion: inventory.example.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: blue-baseline
+spec:
+  selector:
+    matchLabels:
+      inventory.example.io/class: a
+  count: 2
+  targetHostedCluster:
+    name: workload-blue
+    namespace: clusters

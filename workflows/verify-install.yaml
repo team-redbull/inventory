@@ -1,0 +1,24 @@
+# Install gate: the move controller launches this before marking a move complete.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: verify-install
+spec:
+  entrypoint: verify
+  arguments:
+    parameters:
+      - { name: nodeName }
+      - { name: hostedCluster }
+      - { name: namespace, value: "clusters" }
+  templates:
+    - name: verify
+      inputs: { parameters: [{ name: nodeName }, { name: hostedCluster }, { name: namespace }] }
+      container:
+        image: REGISTRY/fleet-tools:latest
+        command: [/bin/fleetctl]
+        args:
+          - "verify"
+          - "install"
+          - "--node={{inputs.parameters.nodeName}}"
+          - "--cluster={{inputs.parameters.hostedCluster}}"
+          # asserts: node Ready, MCO/ignition at expected config, required operators healthy

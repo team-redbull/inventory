@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="644" viewBox="0 0 680 644" role="img">
+<title>Claim-based bare-metal fleet architecture</title>
+<desc>Four layers. Git holds HostClaims (class times count per cluster) plus platform and secret refs. A per-region control plane holds the lease and inventory store and a fleet allocator used only on overflow. Each MCE runs ArgoCD, a claim reconciler that binds available typed BareMetalHosts via NodePool hostSelector as the everyday path, a move controller and Argo Workflows gates for the overflow path, Metal3 BMO with Ironic, and collectors. The physical layer has typed servers, OME or Intersight, and leaf switches. Solid arrows are the everyday local allocation path; dashed arrows are the overflow and rebalance path.</desc>
+<style>
+  text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+  .th{font-size:13px;font-weight:600;fill:#33322e;}
+  .ts{font-size:11px;fill:#6b6a63;}
+  .arr{stroke:#73726c;stroke-width:1.5;fill:none;}
+  rect.c-teal,.c-teal>rect{fill:#dcece7;stroke:#6fa89a;}
+  rect.c-blue,.c-blue>rect{fill:#dde6f1;stroke:#6f8fb2;}
+  rect.c-purple,.c-purple>rect{fill:#e7e1f1;stroke:#9180b3;}
+  rect.c-amber,.c-amber>rect{fill:#f5ecd6;stroke:#c6a558;}
+  rect.c-coral,.c-coral>rect{fill:#f4e1db;stroke:#c2897a;}
+  .c-gray>rect{fill:#f0eee7;stroke:#b3b2aa;}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+
+<rect width="680" height="644" fill="#faf9f5"/>
+
+<g class="c-gray"><rect x="40" y="40" width="600" height="80" rx="16" stroke-width="0.5" stroke-dasharray="5 4"/></g>
+<text class="th" x="60" y="58" dominant-baseline="central">Git — desired state</text>
+<g class="c-gray"><rect x="40" y="140" width="600" height="80" rx="16" stroke-width="0.5" stroke-dasharray="5 4"/></g>
+<text class="th" x="60" y="158" dominant-baseline="central">Control plane (per region)</text>
+<g class="c-gray"><rect x="40" y="240" width="600" height="250" rx="16" stroke-width="0.5" stroke-dasharray="5 4"/></g>
+<text class="th" x="60" y="258" dominant-baseline="central">MCE  (×N per site)</text>
+<g class="c-gray"><rect x="40" y="510" width="600" height="80" rx="16" stroke-width="0.5" stroke-dasharray="5 4"/></g>
+<text class="th" x="60" y="528" dominant-baseline="central">Physical + out-of-band</text>
+
+<g class="c-teal"><rect x="60" y="72" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="145" y="86" text-anchor="middle" dominant-baseline="central">HostClaims</text><text class="ts" x="145" y="100" text-anchor="middle" dominant-baseline="central">class × count per cluster</text>
+<g class="c-teal"><rect x="450" y="72" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="535" y="86" text-anchor="middle" dominant-baseline="central">Platform + secret refs</text><text class="ts" x="535" y="100" text-anchor="middle" dominant-baseline="central">controllers · collectors</text>
+
+<g class="c-amber"><rect x="255" y="172" width="170" height="40" rx="8" stroke-width="1"/></g>
+<text class="th" x="340" y="186" text-anchor="middle" dominant-baseline="central">Lease + inventory</text><text class="ts" x="340" y="200" text-anchor="middle" dominant-baseline="central">Postgres · capacity API</text>
+<g class="c-blue"><rect x="450" y="172" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="535" y="186" text-anchor="middle" dominant-baseline="central">Fleet allocator</text><text class="ts" x="535" y="200" text-anchor="middle" dominant-baseline="central">overflow / rebalance</text>
+
+<g class="c-blue"><rect x="60" y="272" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="145" y="286" text-anchor="middle" dominant-baseline="central">ArgoCD</text><text class="ts" x="145" y="300" text-anchor="middle" dominant-baseline="central">pulls its slice</text>
+<g class="c-purple"><rect x="60" y="330" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="145" y="344" text-anchor="middle" dominant-baseline="central">Claim reconciler</text><text class="ts" x="145" y="358" text-anchor="middle" dominant-baseline="central">NodePool · hostSelector</text>
+<g class="c-blue"><rect x="60" y="388" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="145" y="402" text-anchor="middle" dominant-baseline="central">Metal3 BMO + Ironic</text><text class="ts" x="145" y="416" text-anchor="middle" dominant-baseline="central">provisioning</text>
+<g class="c-purple"><rect x="255" y="300" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="340" y="314" text-anchor="middle" dominant-baseline="central">Move controller</text><text class="ts" x="340" y="328" text-anchor="middle" dominant-baseline="central">lease · overflow</text>
+<g class="c-amber"><rect x="255" y="388" width="170" height="40" rx="8" stroke-width="1"/></g>
+<text class="th" x="340" y="402" text-anchor="middle" dominant-baseline="central">Argo Workflows</text><text class="ts" x="340" y="416" text-anchor="middle" dominant-baseline="central">teardown · install gates</text>
+<g class="c-blue"><rect x="450" y="388" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="535" y="402" text-anchor="middle" dominant-baseline="central">Collectors</text><text class="ts" x="535" y="416" text-anchor="middle" dominant-baseline="central">inventory · topology</text>
+<text class="ts" x="340" y="458" text-anchor="middle" dominant-baseline="central">available pool: BareMetalHosts labeled by type / class</text>
+
+<g class="c-coral"><rect x="60" y="542" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="145" y="556" text-anchor="middle" dominant-baseline="central">Typed servers</text><text class="ts" x="145" y="570" text-anchor="middle" dominant-baseline="central">Redfish · IPMI+PXE</text>
+<g class="c-coral"><rect x="255" y="542" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="340" y="556" text-anchor="middle" dominant-baseline="central">OME / Intersight</text><text class="ts" x="340" y="570" text-anchor="middle" dominant-baseline="central">OOB enrichment</text>
+<g class="c-coral"><rect x="450" y="542" width="170" height="40" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="535" y="556" text-anchor="middle" dominant-baseline="central">Leaf switches</text><text class="ts" x="535" y="570" text-anchor="middle" dominant-baseline="central">segment eligibility</text>
+
+<line x1="145" y1="114" x2="145" y2="270" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="152" y="178" dominant-baseline="central">pull</text>
+<line x1="145" y1="313" x2="145" y2="328" class="arr" marker-end="url(#arrow)"/>
+<line x1="145" y1="371" x2="145" y2="386" class="arr" marker-end="url(#arrow)"/>
+<line x1="145" y1="430" x2="145" y2="540" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="152" y="485" dominant-baseline="central">provision</text>
+<line x1="535" y1="388" x2="350" y2="214" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="455" y="300" dominant-baseline="central">capacity push</text>
+
+<polyline points="60,350 48,350 48,130 535,130 535,170" class="arr" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text class="ts" x="300" y="124" dominant-baseline="central">spill if short</text>
+<line x1="535" y1="212" x2="427" y2="318" class="arr" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text class="ts" x="470" y="258" dominant-baseline="central">emit move</text>
+<line x1="340" y1="298" x2="340" y2="214" class="arr" stroke-dasharray="5 4" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text class="ts" x="348" y="256" dominant-baseline="central">lease CAS</text>
+<line x1="340" y1="342" x2="340" y2="386" class="arr" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text class="ts" x="348" y="364" dominant-baseline="central">gates</text>
+
+<rect class="c-teal" x="50" y="604" width="11" height="11" rx="3"/><text class="ts" x="67" y="610" dominant-baseline="central">desired</text>
+<rect class="c-blue" x="150" y="604" width="11" height="11" rx="3"/><text class="ts" x="167" y="610" dominant-baseline="central">stock</text>
+<rect class="c-purple" x="240" y="604" width="11" height="11" rx="3"/><text class="ts" x="257" y="610" dominant-baseline="central">you build</text>
+<rect class="c-amber" x="380" y="604" width="11" height="11" rx="3"/><text class="ts" x="397" y="610" dominant-baseline="central">coord / gates</text>
+<rect class="c-coral" x="520" y="604" width="11" height="11" rx="3"/><text class="ts" x="537" y="610" dominant-baseline="central">physical</text>
+<text class="ts" x="340" y="630" text-anchor="middle" dominant-baseline="central">solid = everyday local path   ·   dashed = overflow / rebalance</text>
+</svg>
