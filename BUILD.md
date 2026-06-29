@@ -17,7 +17,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | 6 | Binder (Agent) | MCE | build | NodePool agentLabelSelector binding | `[x]` |
 | 7 | Collectors | Hub + MCE | build | Push inventory to store: Python collectors (OME/Intersight/UCS) on hub; Go collectors (BMH/Redfish) per-MCE | `[x]` |
 | 8 | Classifier | MCE | stock | Class declared in `InventoryRecord.spec`; InfraEnv per class stamps `agentLabels` → superseded by #19 | `[x]` |
-| 9 | IR reconciler — enroll phase | MCE | build | Lease acquire + BMH create + creds wiring + launch host-install workflow | `[ ]` |
+| 9 | IR reconciler — enroll phase | MCE | build | Lease acquire + BMH create + creds wiring + launch host-install workflow | `[x]` |
 | 10 | IR reconciler — lifecycle phase | MCE | build | Reflect desired phase → BMH (power/maintenance/decommission) | `[ ]` |
 | 11 | IR reconciler — move phase | MCE | build | Cross-MCE handoff state machine (overflow) inside IR reconciler | `[ ]` |
 | 12 | Fleet allocator | Store-side | build | Eligibility + donor selection + emit moves; placement policy | `[ ]` |
@@ -85,9 +85,11 @@ spec.desiredPhase == decommission  →  reconcileDecommission
 default (Owned, in_service)        →  reconcileInService  ← current code lives here
 ```
 
-#### 9. Enroll phase `[ ]`
-- [ ] On Free/nil lease: resolve creds Secret → `Acquire` (Free→Owned) → create BMH + Secret → launch `host-install` WorkflowTemplate (branches PXE vs Redfish) → poll until `available`.
-- [ ] `SetHostPhase(in_service)` + push initial inventory to store.
+#### 9. Enroll phase `[x]`
+- [x] On Free/nil lease: `Acquire` (Free→Owned) → confirm `lease.OwnerMCE == r.MCE` → copy BMC creds Secret to `bmc-<serviceTag>` in `rec.Namespace` → create `enroll-<serviceTag>` Workflow referencing `host-install` WorkflowTemplate.
+- [x] Poll Workflow status → mirror to IR `Enrolled` condition (Unknown/True/False). `Enrolled=True` flips dispatch to `reconcileInService`. `SetHostPhase(in_service)` called by the workflow's `register` step (`fleetctl register`).
+- [x] Method derived from `spec.bmc.type` + `bootMACAddress`: generic+MAC → `ipmi-pxe`, all others → `redfish`.
+- [x] Failed Workflow sets `Enrolled=False`; manual deletion of the Workflow object required before re-enrollment.
 
 #### 10. Lifecycle phase `[ ]`
 - [ ] Watch `spec.desiredPhase` (GitOps-written) → `SetHostPhase` in store → reflect on BMH:

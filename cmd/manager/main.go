@@ -59,8 +59,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Postgres projector: project InventoryRecord status into the central store.
-	// Optional — manager runs without it; store writes are skipped until wired.
+	// IR state machine: enroll → in_service (allocation write-back). Requires
+	// Postgres. Optional — manager runs without it; store writes are skipped.
 	if pgURL != "" {
 		pool, err := pgxpool.New(context.Background(), pgURL)
 		if err != nil {
