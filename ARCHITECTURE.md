@@ -131,14 +131,19 @@ yet bound to a cluster. `region_headroom` subtracts active holdings from spare:
 `free_headroom = spare − reserved`, and `shortage` trips when holdings over-commit
 the spare pool — answering "will there be a shortage of type A" before you claim.
 
-**Overflow (the rare path).** If the local pool is short and `allowSpill` is true,
-the reconciler signals the **fleet allocator** (the only component that reads the
-whole region). It filters donors by `available ∧ class ∧ segment-reachable`, picks
-some, and emits moves. The **move controller** runs the handoff: drain →
-deprovision → **Argo Workflows teardown gate** (disks wiped, no orphans) → lease
-`Owned→Releasing→Free` (CAS) → target MCE claims `Free→Owned` → BMH recreated →
-inspect → bind → **install gate** (node Ready, config applied) → complete. A failed
-gate holds the lease and quarantines the host.
+**Spare buffer and replenishment.** Each MCE keeps a small pool of enrolled spare
+hosts (inspected, claimable in minutes). When an MCE's buffer drops, the
+enroll-bot picks a `discovered` host from the store and enrolls it directly into
+that MCE — no cross-MCE handoff needed. Discovered hosts are pre-known via
+OME/Intersight/UCS collectors, so the store always has a region-wide view of
+available unenrolled hardware.
+
+**Overflow (deferred).** Cross-MCE host moves are only needed if every discovered
+host in the region is already enrolled in another MCE AND a cluster still needs
+more capacity. That edge case is deferred until observed at production scale.
+When eventually needed, the move phase in the IR reconciler runs:
+drain → deprovision → **teardown gate** (disks wiped) → lease `Owned→Releasing→Free`
+→ target MCE claims `Free→Owned` → BMH recreated → inspect → bind.
 
 ---
 

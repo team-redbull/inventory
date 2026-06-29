@@ -19,7 +19,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | 8 | Classifier | MCE | stock | Class declared in `InventoryRecord.spec`; InfraEnv per class stamps `agentLabels` → superseded by #19 | `[x]` |
 | 9 | IR reconciler — enroll phase | MCE | build | Lease acquire + BMH create + creds wiring + launch host-install workflow | `[x]` |
 | 10 | IR reconciler — lifecycle phase | MCE | build | Reflect desired phase → BMH (power/maintenance/decommission) | `[ ]` |
-| 11 | IR reconciler — move phase | MCE | build | Cross-MCE handoff state machine (overflow) inside IR reconciler | `[ ]` |
+| 11 | IR reconciler — move phase | MCE | build | Cross-MCE handoff state machine (overflow) — deferred; see §11 | `[ ]` |
 | 12 | Fleet allocator | Store-side | build | Eligibility + donor selection + emit moves; placement policy | `[ ]` |
 | 13 | Discovery sources | MCE | build | Switch/aggregator → `discovered` hosts | `[ ]` |
 | 14 | Argo Workflows | MCE | build+stock | host-install (PXE\|Redfish) + teardown/install gates | `[~]` |
@@ -78,11 +78,11 @@ controller files.
 The IR reconciler dispatches on lease state + `spec.desiredPhase`:
 
 ```
-lease == nil || Free  →  reconcileEnroll
-lease.State == Releasing  →  reconcileRelease
-spec.desiredPhase == maintenance   →  reconcileMaintenance
-spec.desiredPhase == decommission  →  reconcileDecommission
-default (Owned, in_service)        →  reconcileInService  ← current code lives here
+lease == nil || Free               →  reconcileEnroll      [x] built
+spec.desiredPhase == maintenance   →  reconcileMaintenance [ ] #10
+spec.desiredPhase == decommission  →  reconcileDecommission[ ] #10
+lease.State == Releasing           →  reconcileRelease     [ ] #11 deferred
+default (Owned, in_service)        →  reconcileInService   [x] built
 ```
 
 #### 9. Enroll phase `[x]`
@@ -97,8 +97,19 @@ default (Owned, in_service)        →  reconcileInService  ← current code liv
   - `decommissioning`: trigger cleaning workflow, remove from eligible pool.
 - [ ] Clear `spec.desiredPhase` (or set `in_service`) re-enables claiming.
 
-#### 11. Move phase `[ ]`
-- [ ] Releasing side: drain → deprovision → invoke teardown gate (Argo Workflow) → `BeginRelease` → `FreeLease` → delete BMH/Secret.
+#### 11. Move phase `[ ]` — DEFERRED
+
+Spare hosts stay enrolled in their home MCE as a fast local buffer (minutes to
+bind). Discovered-but-not-enrolled hosts in the DB replenish any MCE's buffer
+via the enroll phase — no cross-MCE handoff needed.
+
+The move phase is only required if **all** discovered hosts in the region are
+already enrolled in the wrong MCE AND a cluster still needs more capacity.
+That's an edge case unlikely to hit before production scale. Defer until
+observed in production.
+
+If eventually needed:
+- [ ] Releasing side: drain → deprovision → teardown gate (Argo Workflow) → `BeginRelease` → `FreeLease` → delete BMH/Secret.
 - [ ] Acquiring side: `Acquire` (Free→Owned) → ESO creds → create BMH → inspect → claim binds.
 - [ ] Crash-safe: re-entry from lease state + BMH actual state on each reconcile.
 
@@ -145,4 +156,4 @@ default (Owned, in_service)        →  reconcileInService  ← current code liv
 1. **Make the everyday path live**: #9 enroll phase (IR reconciler), #16/#17/#18/#19 config. → declarative allocation works end to end.
 2. **Regional surface**: #15 Capacity API + UI, #20 `mce_reach`, #13 discovery. → full visibility incl. spare/maintenance/discovered + shortage.
 3. **Lifecycle**: #10 maintenance phase (IR reconciler).
-4. **Overflow**: #12 allocator, #11 move phase (IR reconciler), #14 gates. → cross-MCE movement with verification.
+4. **Overflow** (deferred): #12 allocator, #11 move phase, #14 gates. Only needed if all discovered hosts are already enrolled in the wrong MCE.
