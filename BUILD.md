@@ -19,7 +19,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | 8 | Classifier | MCE | stock | Class declared in `InventoryRecord.spec`; InfraEnv per class stamps `agentLabels` → superseded by #19 | `[x]` |
 | 9 | IR reconciler — enroll phase | MCE | build | Lease acquire + BMH create + creds wiring + launch host-install workflow | `[x]` |
 | 10 | IR reconciler — lifecycle phase | MCE | build | Reflect desired phase → BMH (power/maintenance/decommission) | `[ ]` |
-| 11 | IR reconciler — move phase | MCE | build | Cross-MCE handoff state machine (overflow) — deferred; see §11 | `[ ]` |
+| 11 | IR reconciler — move phase | MCE | build | Cross-MCE handoff (overflow) — deferred; spare buffer + enroll replenishment covers the common case | `[ ]` |
 | 12 | Fleet allocator | Store-side | build | Eligibility + donor selection + emit moves; placement policy | `[ ]` |
 | 13 | Discovery sources | MCE | build | Switch/aggregator → `discovered` hosts | `[ ]` |
 | 14 | Argo Workflows | MCE | build+stock | host-install (PXE\|Redfish) + teardown/install gates | `[~]` |
