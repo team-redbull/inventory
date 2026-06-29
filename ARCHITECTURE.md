@@ -103,23 +103,30 @@ MCE move; even then the lease in the store knows where the host is.
 
 ## 5. The flows
 
-**Enrollment & discovery.** An aggregator (OME, Intersight) or the switch MAC table
-notices new hardware in a site and registers it as a `discovered` host with its
-segment. To bring it into service you pick an MCE from `EligibleMCEs` (computed
-from segment reach), then the **`host-install` Argo WorkflowTemplate** runs:
+**Enrollment & discovery.** The **hub-side enroll-bot** watches the store for
+`discovered` hosts, picks a target MCE via `EligibleMCEs(segment)`, and writes the
+`InventoryRecord` into `fleet-config` (GitOps PR or direct API write). ArgoCD
+delivers the IR to the target MCE. The **IR reconciler** then drives enrollment:
 
 ```
-redfish-prep / pxe-prep (parallel, conditional on boot method)
-  ↓
-create-nmstate   — build NMStateConfig for VLAN tagging before the node boots
-  ↓
-create-bmh       — BareMetalHost created; Ironic takes over
-  ↓
-wait-available   — introspection completes
-  ↓
-classify         — class label stamped on BMH + Agent
-  ↓
-register         — facts pushed to store, phase → spare
+IR reconciler (per-MCE)
+  ↓  acquire lease (Free → Owned, CAS)
+  ↓  copy BMC credential Secret → bmc-<serviceTag>
+  ↓  launch enroll-<serviceTag> Argo Workflow
+     │
+     ├─ redfish-prep / pxe-prep  (parallel, conditional on boot method)
+     ↓
+     create-nmstate   — NMStateConfig for VLAN tagging (before ISO boot)
+     ↓
+     create-bmh       — BareMetalHost created; Ironic takes over
+     ↓
+     wait-available   — introspection completes
+     ↓
+     classify         — class label stamped on BMH + Agent
+     ↓
+     register         — facts pushed to store, phase → spare
+  ↓  IR reconciler polls workflow → mirrors phase → Enrolled condition
+  ↓  Enrolled=True flips dispatch to reconcileInService
 ```
 
 **Provisioning VLAN tagging (`create-nmstate`).** Before the host boots the
@@ -128,23 +135,22 @@ VLAN. The `NMStateConfig` (nmstate.io/v1) object instructs the agent running ins
 the ISO how to configure networking:
 
 - **Two-interface config**: the physical boot NIC (MAC bound, no IP) plus a VLAN
-  sub-interface (`<nic>.<vlan_id>`) with full DHCP. This is the same pattern the
-  Assisted Installer expects — the physical NIC is "up" so the VLAN sub-interface
-  can carry traffic, but the NIC itself holds no IP to avoid routing conflicts.
+  sub-interface (`<nic>.<vlan_id>`) with full DHCP. The physical NIC is "up" so the
+  VLAN sub-interface can carry traffic, but holds no IP to avoid routing conflicts.
 - **VLAN ID** comes from `mce_reach.vlan_id` keyed by `(mce, segment)`. VLAN is a
   property of the L2 segment the host is wired to — **not** a property of the class
   or InfraEnv. Multiple classes (InfraEnvs) can share the same VLAN when they live
   on the same physical segment; each MCE may assign different VLANs to the same
-  segment name (different data-center provisioning networks per MCE).
+  segment name (different data-centre provisioning networks per MCE).
 - **NIC name** resolved from `host_nics` by matching `spec.bmc.bootMACAddress` →
-  the interface name the agent should configure.
+  the interface name the agent should configure. NIC data was written by the hub-side
+  Python collectors (OME/Intersight/UCS) before enrollment begins.
 - **InfraEnv binding** via label `infraenvs.agent-install.openshift.io: <class>`.
   Assisted Installer picks up every `NMStateConfig` carrying this label when the
   host registers; no BMH reference needed.
-- `fleetctl nmstate` runs as a workflow step. It queries `mce_reach` for the VLAN
-  and `host_nics` for the NIC name, renders the two-interface YAML, and applies it
-  before `create-bmh`. Both DB queries are already available since `fleetctl`
-  runs with store access.
+- `fleetctl nmstate` (per-MCE, store access) queries `mce_reach` for VLAN and
+  `host_nics` for NIC name, renders the two-interface YAML, and applies it before
+  `create-bmh`.
 
 **Inventory & capacity.** Hub-side Python collectors (OME, Intersight, UCS Central)
 poll vendor APIs and write hardware facts to the store continuously. Per-MCE Go
@@ -168,10 +174,11 @@ the spare pool — answering "will there be a shortage of type A" before you cla
 
 **Spare buffer and replenishment.** Each MCE keeps a small pool of enrolled spare
 hosts (inspected, claimable in minutes). When an MCE's buffer drops, the
-enroll-bot picks a `discovered` host from the store and enrolls it directly into
-that MCE — no cross-MCE handoff needed. Discovered hosts are pre-known via
-OME/Intersight/UCS collectors, so the store always has a region-wide view of
-available unenrolled hardware.
+**hub-side enroll-bot** queries `discovered` hosts from the store, selects one via
+`EligibleMCEs`, and triggers enrollment into that MCE directly — no cross-MCE
+handoff needed. Discovered hosts are pre-known via the hub's OME/Intersight/UCS
+collectors; their NIC facts and topology are already in Postgres before enrollment
+starts, so `create-nmstate` can run without any additional discovery round-trip.
 
 **Overflow (deferred).** Cross-MCE host moves are only needed if every discovered
 host in the region is already enrolled in another MCE AND a cluster still needs
@@ -205,9 +212,15 @@ The hub has no Kubernetes API server requirement — Postgres + collector pods c
 - **Two per-MCE controllers, not five.** All IR lifecycle (enroll, maintenance,
   decommission, move) is a phase dispatch inside `inventoryrecord_controller.go`.
   One reconciler per CRD keeps the watch/predicate surface clean and avoids
-  multiple controllers racing to patch the same IR object. A new InventoryRecord
-  enters the `enroll` branch; `spec.desiredPhase` drives maintenance/decommission;
-  the lease state drives the move/release sequence.
+  multiple controllers racing to patch the same IR status object. Dispatch layers:
+  1. `Enrolled` condition (`metav1.Condition{Type:"Enrolled"}`) is the primary gate —
+     `True` → `reconcileInService`; absent/Unknown/False → `reconcileEnroll`.
+     This mirrors Argo Workflow phase (Unknown while running, True on Succeeded,
+     False on Failed/Error) and is the only write that changes the dispatch branch.
+  2. `spec.desiredPhase` drives maintenance/decommission inside `reconcileInService`.
+  3. Lease state (`Releasing`) drives the move/release sequence (deferred).
+  controller-runtime's single-active-worker-per-key guarantee ensures at most one
+  goroutine patches a given IR's status at a time.
 
 - **No ManifestWork / no central push.** Per-MCE standalone ArgoCD in pull mode.
   The hub-shaped role shrinks to a small transactional store off the data path.
@@ -246,7 +259,7 @@ inventory/
     inventoryrecord_types.go   host: declared spec + runtime status (lease/allocation)
     groupversion_info.go
   pkg/store/              central store — single source of truth for hardware facts
-    store.go                   interfaces (lease/inventory/lifecycle/capacity/reservation/forecast)
+    store.go                   interfaces (lease/inventory/lifecycle/capacity/reservation/forecast/network)
     postgres.go                pgx implementation
   pkg/binder/             NodePool binding seam
     binder.go                  AgentBinder (live) + CAPM3Binder (stub)
@@ -262,16 +275,18 @@ inventory/
   internal/controller/
     hostclaim_controller.go    the everyday allocation reconciler (HostClaim → NodePool)
     inventoryrecord_controller.go  IR state machine: enroll → in_service → maintenance/move
-                               Phase dispatch on lease state + spec.desiredPhase.
-                               Current: inService phase (inventory projection + allocation write-back).
-                               Planned: enroll phase (#9), lifecycle phase (#10), move phase (#11).
+                               Dispatch: Enrolled condition (primary) → desiredPhase → lease state.
+                               Built: enroll (#9, Enrolled condition + host-install workflow),
+                                      inService (#9, allocation write-back + inventory projection).
+                               Planned: lifecycle phase (#10), move phase (#11 deferred).
   cmd/manager/              per-MCE manager entrypoint
   workflows/               Argo WorkflowTemplates
-    host-install.yaml          enroll: branches Redfish vs IPMI+PXE
+    host-install.yaml          enroll: preflight → NMState VLAN config → create-BMH → inspect → classify → register
     verify-teardown.yaml       move gate: disks wiped + no orphans
     verify-install.yaml        move gate: node ready + config
-  db/schema.sql           store schema (inventory, lease, allocation, state,
-                          reservation, mce_reach + capacity/headroom/eligibility views)
+  db/schema.sql           store schema (inventory, lease, allocation, state, reservation,
+                          host_nics, host_topology, mce_reach (incl. vlan_id) +
+                          capacity/headroom/eligibility views)
   config/samples/         example HostClaim / InventoryRecord manifests
   docs/                   architecture + flow diagrams (SVG)
 ```
