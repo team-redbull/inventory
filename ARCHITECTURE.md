@@ -107,27 +107,11 @@ MCE move; even then the lease in the store knows where the host is.
 `discovered` hosts, picks a target MCE via `EligibleMCEs(segment)`, and writes the
 `InventoryRecord` into `fleet-config` (GitOps PR or direct API write). ArgoCD
 delivers the IR to the target MCE. The **IR reconciler** then drives enrollment:
-
-```
-IR reconciler (per-MCE)
-  ↓  acquire lease (Free → Owned, CAS)
-  ↓  copy BMC credential Secret → bmc-<serviceTag>
-  ↓  launch enroll-<serviceTag> Argo Workflow
-     │
-     ├─ redfish-prep / pxe-prep  (parallel, conditional on boot method)
-     ↓
-     create-nmstate   — NMStateConfig for VLAN tagging (before ISO boot)
-     ↓
-     create-bmh       — BareMetalHost created; Ironic takes over
-     ↓
-     wait-available   — introspection completes
-     ↓
-     classify         — class label stamped on BMH + Agent
-     ↓
-     register         — facts pushed to store, phase → spare
-  ↓  IR reconciler polls workflow → mirrors phase → Enrolled condition
-  ↓  Enrolled=True flips dispatch to reconcileInService
-```
+acquires the lease (Free → Owned CAS), copies the BMC credential Secret to
+`bmc-<serviceTag>`, and launches the `host-install` Argo WorkflowTemplate (see
+`workflows/host-install.yaml` for the full step DAG). It then polls the workflow,
+mirrors its phase into the `Enrolled` condition, and flips dispatch to
+`reconcileInService` once `Enrolled=True`.
 
 **Provisioning VLAN tagging (`create-nmstate`).** Before the host boots the
 Assisted Installer discovery ISO it must receive DHCP on the correct provisioning
