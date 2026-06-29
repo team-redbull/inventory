@@ -106,10 +106,45 @@ MCE move; even then the lease in the store knows where the host is.
 **Enrollment & discovery.** An aggregator (OME, Intersight) or the switch MAC table
 notices new hardware in a site and registers it as a `discovered` host with its
 segment. To bring it into service you pick an MCE from `EligibleMCEs` (computed
-from segment reach), then the **`host-install` Argo WorkflowTemplate** runs —
-branching on boot method (Redfish virtual-media vs IPMI+PXE) before converging on
-create-BMH → Ironic inspect → classify → register. The class is stamped on the
-BMH/Agent and facts pushed to the store. Phase → spare.
+from segment reach), then the **`host-install` Argo WorkflowTemplate** runs:
+
+```
+redfish-prep / pxe-prep (parallel, conditional on boot method)
+  ↓
+create-nmstate   — build NMStateConfig for VLAN tagging before the node boots
+  ↓
+create-bmh       — BareMetalHost created; Ironic takes over
+  ↓
+wait-available   — introspection completes
+  ↓
+classify         — class label stamped on BMH + Agent
+  ↓
+register         — facts pushed to store, phase → spare
+```
+
+**Provisioning VLAN tagging (`create-nmstate`).** Before the host boots the
+Assisted Installer discovery ISO it must receive DHCP on the correct provisioning
+VLAN. The `NMStateConfig` (nmstate.io/v1) object instructs the agent running inside
+the ISO how to configure networking:
+
+- **Two-interface config**: the physical boot NIC (MAC bound, no IP) plus a VLAN
+  sub-interface (`<nic>.<vlan_id>`) with full DHCP. This is the same pattern the
+  Assisted Installer expects — the physical NIC is "up" so the VLAN sub-interface
+  can carry traffic, but the NIC itself holds no IP to avoid routing conflicts.
+- **VLAN ID** comes from `mce_reach.vlan_id` keyed by `(mce, segment)`. VLAN is a
+  property of the L2 segment the host is wired to — **not** a property of the class
+  or InfraEnv. Multiple classes (InfraEnvs) can share the same VLAN when they live
+  on the same physical segment; each MCE may assign different VLANs to the same
+  segment name (different data-center provisioning networks per MCE).
+- **NIC name** resolved from `host_nics` by matching `spec.bmc.bootMACAddress` →
+  the interface name the agent should configure.
+- **InfraEnv binding** via label `infraenvs.agent-install.openshift.io: <class>`.
+  Assisted Installer picks up every `NMStateConfig` carrying this label when the
+  host registers; no BMH reference needed.
+- `fleetctl nmstate` runs as a workflow step. It queries `mce_reach` for the VLAN
+  and `host_nics` for the NIC name, renders the two-interface YAML, and applies it
+  before `create-bmh`. Both DB queries are already available since `fleetctl`
+  runs with store access.
 
 **Inventory & capacity.** Hub-side Python collectors (OME, Intersight, UCS Central)
 poll vendor APIs and write hardware facts to the store continuously. Per-MCE Go
@@ -190,6 +225,15 @@ The hub has no Kubernetes API server requirement — Postgres + collector pods c
   cluster to host a region-wide object, and reservation is an accounting overlay.
 - **The home MCE is the grip.** Spare and maintenance hosts keep their BMH, so
   they stay operationally controllable without being in a workload cluster.
+- **VLAN is per segment, not per class.** `mce_reach.vlan_id` is keyed by
+  `(mce, segment)`. A segment is an L2 network; multiple hardware classes (InfraEnvs)
+  can share one VLAN when they are wired to the same segment. Conversely, the same
+  segment name can map to different VLAN IDs on different MCEs (different data-centre
+  provisioning networks). This is why VLAN lives on `mce_reach` (the segment-reach
+  config table) rather than on the InfraEnv object or as an IR spec field.
+  `NMStateConfig` objects are labeled per class so the correct Assisted Installer
+  InfraEnv picks them up, but the VLAN ID itself is a network infrastructure fact
+  independent of the hardware class.
 
 ---
 

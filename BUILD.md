@@ -37,7 +37,7 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 ### Done — refine as needed
 - [x] **HostClaim CRD** — selector/count/targetHostedCluster/nodePool/allowSpill; phase + unsatisfiableReason.
 - [x] **InventoryRecord CRD** — declared spec (no cluster), runtime status (ownership + allocation only). Hardware facts live in Postgres, not in the CR.
-- [x] **Store schema** — `host_inventory`, `host_lease`, `host_allocation`, `host_state`, `host_reservation(+member)`, `mce_reach`; views `host_capacity`, `region_headroom`, `host_eligible_mce`.
+- [x] **Store schema** — `host_inventory`, `host_lease`, `host_allocation`, `host_state`, `host_reservation(+member)`, `mce_reach` (incl. `vlan_id` per segment per MCE), `host_nics`, `host_topology`; views `host_capacity`, `region_headroom`, `host_eligible_mce`.
 - [x] **Store Go** — `LeaseStore` (CAS Transition + Acquire/Release helpers), `InventoryStore`, `LifecycleStore` (SetHostPhase + EligibleMCEs), `CapacityStore`, `ReservationStore`, `ForecastStore`; pgx impl.
 
 ### 5. Claim reconciler `[x]`
@@ -92,6 +92,7 @@ default (Owned, in_service)        →  reconcileInService   [x] built
 - [x] Poll Workflow status → mirror to IR `Enrolled` condition (Unknown/True/False). `Enrolled=True` flips dispatch to `reconcileInService`. `SetHostPhase(in_service)` called by the workflow's `register` step (`fleetctl register`).
 - [x] Method derived from `spec.bmc.type` + `bootMACAddress`: generic+MAC → `ipmi-pxe`, all others → `redfish`.
 - [x] Failed Workflow sets `Enrolled=False`; manual deletion of the Workflow object required before re-enrollment.
+- [x] **NMState VLAN config** (`create-nmstate` step, runs before `create-bmh`): `fleetctl nmstate` queries `mce_reach.vlan_id` by `(mce, segment)` for the VLAN ID and `host_nics` by `bootMACAddress` for the NIC name, then creates `NMStateConfig` (nmstate.io/v1) labeled `infraenvs.agent-install.openshift.io: <class>`. Two-interface layout: base ethernet NIC (no IP) + VLAN sub-interface with DHCP. VLAN is per segment — multiple classes can share one VLAN; same segment name maps to different VLAN IDs on different MCEs. See ARCHITECTURE.md §7 and §5 enrollment flow. `fleetctl nmstate` still needs to be built as part of #14 fleet-tools.
 
 #### 10. Lifecycle phase `[ ]`
 - [ ] Watch `spec.desiredPhase` (GitOps-written) → `SetHostPhase` in store → reflect on BMH:
