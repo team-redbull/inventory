@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="680" height="644" viewBox="0 0 680 644" role="img">
 <title>Claim-based bare-metal fleet architecture</title>
-<desc>Four layers. Git holds HostClaims (class times count per cluster) plus platform and secret refs. A per-region control plane holds the lease and inventory store and a fleet allocator used only on overflow. Each MCE runs ArgoCD, a claim reconciler that binds available typed BareMetalHosts via NodePool hostSelector as the everyday path, a move controller and Argo Workflows gates for the overflow path, Metal3 BMO with Ironic, and collectors. The physical layer has typed servers, OME or Intersight, and leaf switches. Solid arrows are the everyday local allocation path; dashed arrows are the overflow and rebalance path.</desc>
+<desc>Four layers. Git holds HostClaims (class times count per cluster) plus platform and secret refs. A per-region control plane holds the lease and inventory store and a fleet allocator used only on overflow. Each MCE runs ArgoCD, a claim reconciler that binds available typed BareMetalHosts via NodePool hostSelector as the everyday path, an IR reconciler (enroll, lifecycle, move phases) and Argo Workflows for enrollment and overflow, Metal3 BMO with Ironic, and collectors. The physical layer has typed servers, OME or Intersight, and leaf switches. Solid arrows are the everyday local allocation path; dashed arrows are the overflow and rebalance path.</desc>
 <style>
   text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
   .th{font-size:13px;font-weight:600;fill:#33322e;}
@@ -43,11 +43,11 @@
 <g class="c-blue"><rect x="60" y="388" width="170" height="40" rx="8" stroke-width="0.5"/></g>
 <text class="th" x="145" y="402" text-anchor="middle" dominant-baseline="central">Metal3 BMO + Ironic</text><text class="ts" x="145" y="416" text-anchor="middle" dominant-baseline="central">provisioning</text>
 <g class="c-purple"><rect x="255" y="300" width="170" height="40" rx="8" stroke-width="0.5"/></g>
-<text class="th" x="340" y="314" text-anchor="middle" dominant-baseline="central">Move controller</text><text class="ts" x="340" y="328" text-anchor="middle" dominant-baseline="central">lease · overflow</text>
+<text class="th" x="340" y="314" text-anchor="middle" dominant-baseline="central">IR reconciler</text><text class="ts" x="340" y="328" text-anchor="middle" dominant-baseline="central">enroll · lifecycle · move</text>
 <g class="c-amber"><rect x="255" y="388" width="170" height="40" rx="8" stroke-width="1"/></g>
 <text class="th" x="340" y="402" text-anchor="middle" dominant-baseline="central">Argo Workflows</text><text class="ts" x="340" y="416" text-anchor="middle" dominant-baseline="central">teardown · install gates</text>
 <g class="c-blue"><rect x="450" y="388" width="170" height="40" rx="8" stroke-width="0.5"/></g>
-<text class="th" x="535" y="402" text-anchor="middle" dominant-baseline="central">Collectors</text><text class="ts" x="535" y="416" text-anchor="middle" dominant-baseline="central">inventory · topology</text>
+<text class="th" x="535" y="402" text-anchor="middle" dominant-baseline="central">Collectors</text><text class="ts" x="535" y="416" text-anchor="middle" dominant-baseline="central">inventory · NICs · topology</text>
 <text class="ts" x="340" y="458" text-anchor="middle" dominant-baseline="central">available pool: BareMetalHosts labeled by type / class</text>
 
 <g class="c-coral"><rect x="60" y="542" width="170" height="40" rx="8" stroke-width="0.5"/></g>
