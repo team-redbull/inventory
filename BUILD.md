@@ -17,9 +17,9 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 | 6 | Binder (Agent) | MCE | build | NodePool agentLabelSelector binding | `[x]` |
 | 7 | Collectors | Hub + MCE | build | Push inventory to store: Python collectors (OME/Intersight/UCS) on hub; Go collectors (BMH/Redfish) per-MCE | `[x]` |
 | 8 | Classifier | MCE | stock | Class declared in `InventoryRecord.spec`; InfraEnv per class stamps `agentLabels` → superseded by #19 | `[x]` |
-| 9 | Enroll controller | MCE | build | Lease acquire + BMH create + creds wiring | `[ ]` |
-| 10 | Lifecycle/maintenance controller | MCE | build | Reflect phase → BMH (power/maintenance) | `[ ]` |
-| 11 | Move controller | MCE | build | Cross-MCE handoff state machine (overflow) | `[ ]` |
+| 9 | IR reconciler — enroll phase | MCE | build | Lease acquire + BMH create + creds wiring + launch host-install workflow | `[ ]` |
+| 10 | IR reconciler — lifecycle phase | MCE | build | Reflect desired phase → BMH (power/maintenance/decommission) | `[ ]` |
+| 11 | IR reconciler — move phase | MCE | build | Cross-MCE handoff state machine (overflow) inside IR reconciler | `[ ]` |
 | 12 | Fleet allocator | Store-side | build | Eligibility + donor selection + emit moves; placement policy | `[ ]` |
 | 13 | Discovery sources | MCE | build | Switch/aggregator → `discovered` hosts | `[ ]` |
 | 14 | Argo Workflows | MCE | build+stock | host-install (PXE\|Redfish) + teardown/install gates | `[~]` |
@@ -68,19 +68,37 @@ Class is declared in `InventoryRecord.spec.class` (GitOps, set at enrollment). N
 - [x] NodePool `agentLabelSelector` matches on the class label. Nothing else needed.
 See #19 for InfraEnv config.
 
-### 9. Enroll controller `[ ]`
-- [ ] On a new InventoryRecord: resolve creds Secret → `Acquire` lease (Free→Owned) → launch the `host-install` WorkflowTemplate (branches on boot method) → drive to `available`.
-- [ ] Set phase `in_service` and push initial inventory.
+### 9–11. IR reconciler phases `[ ]`
 
-### 10. Lifecycle / maintenance controller `[ ]`
-- [ ] Watch desired phase (Git/API) → `SetHostPhase` in store → reflect on BMH: power off + Metal3 maintenance for `maintenance`; cleaning for `decommissioning`.
-- [ ] Restore to `in_service` re-enables claiming.
+All lifecycle logic lives in `internal/controller/inventoryrecord_controller.go` — a single
+reconciler with an internal phase dispatch. There are **2 per-MCE controllers total**:
+`HostClaim` reconciler and `InventoryRecord` reconciler. No separate enroll/lifecycle/move
+controller files.
 
-### 11. Move controller (overflow) `[ ]`
-- [ ] Reconcile the move state machine; lease client (`BeginRelease`/`FreeLease`/`Acquire`).
-- [ ] Source: drain → deprovision → invoke teardown gate → release lease + delete BMH/Secret.
-- [ ] Target: claim lease → ESO creds → create BMH → inspect → (claim binds).
-- [ ] Crash-safe: resume from lease + BMH actual state.
+The IR reconciler dispatches on lease state + `spec.desiredPhase`:
+
+```
+lease == nil || Free  →  reconcileEnroll
+lease.State == Releasing  →  reconcileRelease
+spec.desiredPhase == maintenance   →  reconcileMaintenance
+spec.desiredPhase == decommission  →  reconcileDecommission
+default (Owned, in_service)        →  reconcileInService  ← current code lives here
+```
+
+#### 9. Enroll phase `[ ]`
+- [ ] On Free/nil lease: resolve creds Secret → `Acquire` (Free→Owned) → create BMH + Secret → launch `host-install` WorkflowTemplate (branches PXE vs Redfish) → poll until `available`.
+- [ ] `SetHostPhase(in_service)` + push initial inventory to store.
+
+#### 10. Lifecycle phase `[ ]`
+- [ ] Watch `spec.desiredPhase` (GitOps-written) → `SetHostPhase` in store → reflect on BMH:
+  - `maintenance`: power off + `spec.online=false` + Metal3 maintenance annotation.
+  - `decommissioning`: trigger cleaning workflow, remove from eligible pool.
+- [ ] Clear `spec.desiredPhase` (or set `in_service`) re-enables claiming.
+
+#### 11. Move phase `[ ]`
+- [ ] Releasing side: drain → deprovision → invoke teardown gate (Argo Workflow) → `BeginRelease` → `FreeLease` → delete BMH/Secret.
+- [ ] Acquiring side: `Acquire` (Free→Owned) → ESO creds → create BMH → inspect → claim binds.
+- [ ] Crash-safe: re-entry from lease state + BMH actual state on each reconcile.
 
 ### 12. Fleet allocator `[ ]`
 - [ ] Eligibility filter: `available ∧ class ∧ EligibleMCEs(target)`.
@@ -122,7 +140,7 @@ See #19 for InfraEnv config.
 
 ## Suggested order
 
-1. **Make the everyday path live**: finish #5 (allocation write-back, maintenance-aware), pin #6, finish #7 `bmh` + #8 classifier, #9 enroll, #16/#17/#18/#19 config. → declarative allocation works end to end.
+1. **Make the everyday path live**: #9 enroll phase (IR reconciler), #16/#17/#18/#19 config. → declarative allocation works end to end.
 2. **Regional surface**: #15 Capacity API + UI, #20 `mce_reach`, #13 discovery. → full visibility incl. spare/maintenance/discovered + shortage.
-3. **Lifecycle**: #10 maintenance reflection.
-4. **Overflow**: #12 allocator, #11 move controller, #14 gates. → cross-MCE movement with verification.
+3. **Lifecycle**: #10 maintenance phase (IR reconciler).
+4. **Overflow**: #12 allocator, #11 move phase (IR reconciler), #14 gates. → cross-MCE movement with verification.

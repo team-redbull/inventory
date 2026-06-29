@@ -162,6 +162,13 @@ The hub has no Kubernetes API server requirement — Postgres + collector pods c
 
 ## 7. Key design decisions
 
+- **Two per-MCE controllers, not five.** All IR lifecycle (enroll, maintenance,
+  decommission, move) is a phase dispatch inside `inventoryrecord_controller.go`.
+  One reconciler per CRD keeps the watch/predicate surface clean and avoids
+  multiple controllers racing to patch the same IR object. A new InventoryRecord
+  enters the `enroll` branch; `spec.desiredPhase` drives maintenance/decommission;
+  the lease state drives the move/release sequence.
+
 - **No ManifestWork / no central push.** Per-MCE standalone ArgoCD in pull mode.
   The hub-shaped role shrinks to a small transactional store off the data path.
 - **Single-writer via lease CAS.** A physical BMC may be managed by one MCE at a
@@ -204,8 +211,11 @@ inventory/
     ucscentral.py              Cisco UCS Central (ucscentralsdk, XML API)
   config/collectors/      Kubernetes Deployment manifests for the Python collectors
   internal/controller/
-    hostclaim_controller.go    the everyday allocation reconciler
-    inventoryrecord_controller.go  IR → store projector (declared fields + Go-side discovery)
+    hostclaim_controller.go    the everyday allocation reconciler (HostClaim → NodePool)
+    inventoryrecord_controller.go  IR state machine: enroll → in_service → maintenance/move
+                               Phase dispatch on lease state + spec.desiredPhase.
+                               Current: inService phase (inventory projection + allocation write-back).
+                               Planned: enroll phase (#9), lifecycle phase (#10), move phase (#11).
   cmd/manager/              per-MCE manager entrypoint
   workflows/               Argo WorkflowTemplates
     host-install.yaml          enroll: branches Redfish vs IPMI+PXE

@@ -26,7 +26,7 @@ pkg/store/           central store: lease CAS, inventory, lifecycle, capacity, h
 pkg/binder/          NodePool binding seam (AgentBinder live; CAPM3 stub)
 pkg/inventory/       Go collectors: bmh (Metal3 introspection), redfish (whitebox fallback)
 collectors/          Python collectors: ome, cisco_intersight, ucscentral — write directly to Postgres
-internal/controller/ claim reconciler + IR projector
+internal/controller/ 2 controllers: HostClaim reconciler + InventoryRecord state machine (enroll/lifecycle/move phases)
 cmd/manager/         per-MCE manager entrypoint
 db/schema.sql        store schema (Postgres)
 workflows/           Argo WorkflowTemplates: host-install (PXE|Redfish), verify-teardown, verify-install
@@ -61,6 +61,8 @@ the boot methods (Redfish vs IPMI+PXE) and the teardown/verification differ per 
 
 ## Contributing
 
-Pick a `[ ]` or `[~]` item from [`BUILD.md`](BUILD.md). The enroll controller (#9)
-is the highest-leverage next task — it closes the loop from discovered host to
-in-service allocation.
+Pick a `[ ]` or `[~]` item from [`BUILD.md`](BUILD.md). The enroll phase of the
+IR reconciler (#9) is the highest-leverage next task — it closes the loop from
+discovered host to in-service allocation. All lifecycle logic (enroll, maintenance,
+move) lives in `internal/controller/inventoryrecord_controller.go` as phase branches;
+no new controller files are needed.
