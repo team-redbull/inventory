@@ -71,9 +71,20 @@ type Allocation struct {
 	ClaimRef      string
 }
 
+// NIC is one physical network port as discovered by a Go-side collector
+// (BMH introspection or Redfish EthernetInterfaces).
+type NIC struct {
+	MAC      string
+	Name     string
+	SpeedMbs int64
+}
+
 type InventoryStore interface {
 	UpsertHost(ctx context.Context, f HostFact) error
 	SetAllocation(ctx context.Context, serviceTag string, a *Allocation) error
+	// UpsertNICs replaces all NIC rows for serviceTag atomically.
+	// Called after discoverFacts when Go-side sources return NIC data.
+	UpsertNICs(ctx context.Context, serviceTag string, nics []NIC) error
 }
 
 // HostPhase is the operational lifecycle of a host, independent of allocation.

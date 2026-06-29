@@ -245,6 +245,13 @@ type drive struct {
 	CapacityBytes int64 `json:"CapacityBytes"`
 }
 
+type ethernetInterface struct {
+	Name                string `json:"Name"`
+	MACAddress          string `json:"MACAddress"`
+	PermanentMACAddress string `json:"PermanentMACAddress"`
+	SpeedMbps           int64  `json:"SpeedMbps"`
+}
+
 // ---- inventory extraction --------------------------------------------------
 
 func (rf *rfClient) inventory(ctx context.Context, serviceTag string) *v1alpha1.DiscoveredInventory {
@@ -279,11 +286,39 @@ func (rf *rfClient) inventory(ctx context.Context, serviceTag string) *v1alpha1.
 			CoresTotal: int32(cores),
 			RAMGiB:     ramGiB,
 		},
+		Network: rf.ethernetInterfaces(ctx, col.Members[0].ID),
 	}
 	if storageGiB > 0 {
 		inv.Storage = &v1alpha1.Storage{TotalGiB: storageGiB}
 	}
 	return inv
+}
+
+func (rf *rfClient) ethernetInterfaces(ctx context.Context, systemPath string) []v1alpha1.NIC {
+	var col collection
+	if err := rf.get(ctx, systemPath+"/EthernetInterfaces", &col); err != nil {
+		return nil
+	}
+	var nics []v1alpha1.NIC
+	for _, m := range col.Members {
+		var ei ethernetInterface
+		if err := rf.get(ctx, m.ID, &ei); err != nil {
+			continue
+		}
+		mac := ei.MACAddress
+		if mac == "" {
+			mac = ei.PermanentMACAddress
+		}
+		if mac == "" {
+			continue
+		}
+		nics = append(nics, v1alpha1.NIC{
+			Name:     ei.Name,
+			MAC:      mac,
+			SpeedMbs: ei.SpeedMbps,
+		})
+	}
+	return nics
 }
 
 func (rf *rfClient) totalStorageGiB(ctx context.Context, storagePath string) int64 {

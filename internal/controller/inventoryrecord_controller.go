@@ -96,6 +96,15 @@ func (r *InventoryRecordReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err := r.Store.UpsertHost(ctx, buildHostFact(&rec, hw)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("upsert host %s: %w", rec.Spec.ServiceTag, err)
 	}
+	if hw != nil && len(hw.Network) > 0 {
+		nics := make([]store.NIC, 0, len(hw.Network))
+		for _, n := range hw.Network {
+			nics = append(nics, store.NIC{MAC: n.MAC, Name: n.Name, SpeedMbs: n.SpeedMbs})
+		}
+		if err := r.Store.UpsertNICs(ctx, rec.Spec.ServiceTag, nics); err != nil {
+			return ctrl.Result{}, fmt.Errorf("upsert nics %s: %w", rec.Spec.ServiceTag, err)
+		}
+	}
 
 	// Enrolled=True gates the in-service path. Absent/Unknown/False → enroll phase.
 	if apimeta.IsStatusConditionTrue(rec.Status.Conditions, condEnrolled) {

@@ -103,6 +103,37 @@ func (p *PG) UpsertHost(ctx context.Context, f HostFact) error {
 	return err
 }
 
+func (p *PG) UpsertNICs(ctx context.Context, serviceTag string, nics []NIC) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM host_nics WHERE service_tag = $1`, serviceTag); err != nil {
+		return err
+	}
+	for _, n := range nics {
+		if n.MAC == "" {
+			continue
+		}
+		var name *string
+		if n.Name != "" {
+			name = &n.Name
+		}
+		var speed *int64
+		if n.SpeedMbs > 0 {
+			speed = &n.SpeedMbs
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO host_nics (service_tag, mac, name, speed_mbs, updated_at) VALUES ($1,$2,$3,$4,now())`,
+			serviceTag, n.MAC, name, speed); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (p *PG) SetAllocation(ctx context.Context, serviceTag string, a *Allocation) error {
 	if a == nil {
 		_, err := p.pool.Exec(ctx, `DELETE FROM host_allocation WHERE service_tag=$1`, serviceTag)
