@@ -197,6 +197,7 @@ func (r *InventoryRecordReconciler) buildEnrollWorkflow(rec *v1alpha1.InventoryR
 		map[string]interface{}{"name": "bootMAC", "value": rec.Spec.BMC.BootMACAddress},
 		map[string]interface{}{"name": "namespace", "value": rec.Namespace},
 		map[string]interface{}{"name": "class", "value": rec.Spec.Class},
+		map[string]interface{}{"name": "segment", "value": rec.Spec.Network.Segment},
 	}
 
 	wf := &unstructured.Unstructured{}

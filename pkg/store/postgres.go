@@ -335,6 +335,19 @@ func (p *PG) ListSpillRequests(ctx context.Context) ([]SpillRequest, error) {
 	return out, rows.Err()
 }
 
+// ---- NetworkStore -----------------------------------------------------------
+
+func (p *PG) VLANForSegment(ctx context.Context, mce, segment string) (int, error) {
+	var vlanID int
+	err := p.pool.QueryRow(ctx,
+		`SELECT coalesce(vlan_id, 0) FROM mce_reach WHERE mce=$1 AND segment=$2`,
+		mce, segment).Scan(&vlanID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	return vlanID, err
+}
+
 // ---- LifecycleStore (maintenance / grip on non-installed hosts) -------------
 
 // EligibleMCEs returns MCEs that can adopt a host, by provisioning reach.

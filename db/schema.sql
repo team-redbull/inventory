@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS mce_reach (
     mce      TEXT NOT NULL,
     site     TEXT,
     segment  TEXT NOT NULL,
+    vlan_id  INT,             -- provisioning VLAN for this segment on this MCE
     PRIMARY KEY (mce, segment)
 );
 

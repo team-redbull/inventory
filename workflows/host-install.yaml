@@ -17,6 +17,7 @@ spec:
       - { name: bootMAC, value: "" }   # required for ipmi-pxe
       - { name: namespace, value: "openshift-machine-api" }
       - { name: class, value: "" }     # optional override; else derived
+      - { name: segment, value: "" }   # provisioning segment → VLAN lookup in mce_reach
   templates:
     - name: install
       inputs:
@@ -27,6 +28,7 @@ spec:
           - { name: bootMAC }
           - { name: namespace }
           - { name: class }
+          - { name: segment }
       dag:
         tasks:
           # ---- method-specific preflight (one of these runs) ----
@@ -41,9 +43,20 @@ spec:
             arguments:
               parameters:
                 - { name: bootMAC, value: "{{inputs.parameters.bootMAC}}" }
+          # ---- NMState VLAN config: must exist before node boots discovery ISO ----
+          - name: create-nmstate
+            dependencies: [redfish-prep, pxe-prep]
+            template: create-nmstate
+            arguments:
+              parameters:
+                - { name: serviceTag, value: "{{inputs.parameters.serviceTag}}" }
+                - { name: bootMAC,    value: "{{inputs.parameters.bootMAC}}" }
+                - { name: segment,    value: "{{inputs.parameters.segment}}" }
+                - { name: class,      value: "{{inputs.parameters.class}}" }
+                - { name: namespace,  value: "{{inputs.parameters.namespace}}" }
           # ---- converge: create the BMH with the method-correct address ----
           - name: create-bmh
-            dependencies: [redfish-prep, pxe-prep]
+            dependencies: [create-nmstate]
             template: create-bmh
             arguments:
               parameters:
@@ -70,6 +83,38 @@ spec:
             template: register
             arguments:
               parameters: [{ name: serviceTag, value: "{{inputs.parameters.serviceTag}}" }]
+
+    # --- Create NMStateConfig for VLAN tagging before the node boots ---
+    # fleetctl nmstate:
+    #   1. SELECT vlan_id FROM mce_reach WHERE mce=$MCE AND segment=$segment
+    #   2. SELECT name FROM host_nics WHERE service_tag=$serviceTag AND mac=$bootMAC
+    #   3. Render NMStateConfig (base ethernet iface + VLAN sub-iface with DHCP)
+    #   4. kubectl apply -n $namespace
+    # NMStateConfig is labeled infraenvs.agent-install.openshift.io: $class so
+    # Assisted Installer agent picks it up when the host boots the discovery ISO.
+    - name: create-nmstate
+      inputs:
+        parameters:
+          - { name: serviceTag }
+          - { name: bootMAC }
+          - { name: segment }
+          - { name: class }
+          - { name: namespace }
+      container:
+        image: REGISTRY/fleet-tools:latest
+        command: [/bin/fleetctl]
+        args:
+          - nmstate
+          - --host
+          - "{{inputs.parameters.serviceTag}}"
+          - --boot-mac
+          - "{{inputs.parameters.bootMAC}}"
+          - --segment
+          - "{{inputs.parameters.segment}}"
+          - --class
+          - "{{inputs.parameters.class}}"
+          - --namespace
+          - "{{inputs.parameters.namespace}}"
 
     # --- Redfish path: ensure virtual-media reachable + firmware sane ---
     - name: redfish-prep

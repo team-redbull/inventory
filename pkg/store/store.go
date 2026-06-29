@@ -181,6 +181,14 @@ type ForecastStore interface {
 	RegionHeadroom(ctx context.Context, class string) ([]Headroom, error)
 }
 
+// NetworkStore resolves infrastructure network config from mce_reach.
+type NetworkStore interface {
+	// VLANForSegment returns the provisioning VLAN ID for (mce, segment).
+	// Returns 0 if the row exists but vlan_id is NULL, or ErrNoRows if the
+	// segment is not reachable from that MCE.
+	VLANForSegment(ctx context.Context, mce, segment string) (int, error)
+}
+
 // SpillRequest is a pending overflow demand from one MCE that the fleet
 // allocator must satisfy by moving hosts from other MCEs.
 type SpillRequest struct {
@@ -211,6 +219,7 @@ type Store interface {
 	ReservationStore
 	ForecastStore
 	SpillStore
+	NetworkStore
 }
 
 // ---- convenience helpers built on Transition --------------------------------
