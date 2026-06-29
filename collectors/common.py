@@ -16,6 +16,13 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
+class NICInfo:
+    mac: str
+    name: str = ""
+    speed_mbs: int = 0
+
+
+@dataclass
 class TopologyLink:
     nic_mac: str
     leaf_name: str = ""
@@ -31,6 +38,7 @@ class DiscoveredFact:
     cores: int = 0
     ram_gib: int = 0
     storage_gib: int = 0
+    nics: list[NICInfo] = field(default_factory=list)
     topology: list[TopologyLink] = field(default_factory=list)
 
 
@@ -74,8 +82,26 @@ def upsert(conn: psycopg.Connection, f: DiscoveredFact) -> None:
         },
     )
 
+    if f.nics:
+        _upsert_nics(conn, f.service_tag, f.nics)
     if f.topology:
         _upsert_topology(conn, f.service_tag, f.topology)
+
+
+def _upsert_nics(conn: psycopg.Connection, service_tag: str, nics: list[NICInfo]) -> None:
+    """Replace all NIC rows for this host atomically."""
+    conn.execute("DELETE FROM host_nics WHERE service_tag = %s", (service_tag,))
+    conn.executemany(
+        """
+        INSERT INTO host_nics (service_tag, mac, name, speed_mbs, updated_at)
+        VALUES (%s, %s, %s, %s, now())
+        """,
+        [
+            (service_tag, n.mac, n.name or None, n.speed_mbs or None)
+            for n in nics
+            if n.mac
+        ],
+    )
 
 
 def _upsert_topology(conn: psycopg.Connection, service_tag: str, links: list[TopologyLink]) -> None:
@@ -102,5 +128,6 @@ def flush(facts: list[DiscoveredFact], dsn: str) -> None:
         for f in facts:
             upsert(conn, f)
         conn.commit()
+    nic_count = sum(len(f.nics) for f in facts)
     topo_count = sum(len(f.topology) for f in facts)
-    log.info("flushed %d host facts, %d topology links", len(facts), topo_count)
+    log.info("flushed %d host facts, %d nics, %d topology links", len(facts), nic_count, topo_count)

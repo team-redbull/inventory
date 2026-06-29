@@ -80,46 +80,45 @@ def _device_moid(server) -> str | None:
     return None
 
 
-def _topology(client: ApiClient, device_moid: str | None) -> list[common.TopologyLink]:
-    """Extract NIC MACs and fabric port mapping for an Intersight-managed server.
+def _nics_and_topology(client: ApiClient, device_moid: str | None) -> tuple[list[common.NICInfo], list[common.TopologyLink]]:
+    """Extract NIC inventory and fabric port mapping from AdapterHostEthInterface.
 
-    AdapterHostEthInterface gives per-NIC MACs. For FI-attached blades the
-    peer_interface MoRef resolves to the FI port; for standalone rack units
-    managed via IMM/Intersight the peer is the ToR switch port when LLDP is
-    enabled on the FI/IMM uplink. leaf_name is the peer DN component; leaf_port
-    is the port ID when available.
+    One API call per server yields both NIC facts (name, MAC, speed) and topology
+    (peer FI/IMM port DN). For FI-attached blades peer_interface resolves to the
+    FI port; for IMM-managed rack units it is the ToR switch port when LLDP is
+    enabled. max_speed is in Mbps.
     """
     if not device_moid:
-        return []
+        return [], []
     try:
         aapi = adapter_api.AdapterApi(client)
         ifaces = _list_all(
             aapi.get_adapter_host_eth_interface_list,
             filter=f"RegisteredDevice.Moid eq '{device_moid}'",
         )
+        nics = []
         links = []
         for iface in ifaces:
             mac = getattr(iface, "mac_address", "") or ""
             if not mac:
                 continue
+            name = getattr(iface, "name", "") or ""
+            speed = int(getattr(iface, "max_speed", 0) or 0)
+            nics.append(common.NICInfo(mac=mac, name=name, speed_mbs=speed))
+
             leaf_name = ""
             leaf_port = ""
             peer = getattr(iface, "peer_interface", None)
             if peer:
-                # peer DN: sys/fex-101/slot-1/host-eth-1 or sys/switch-A/slot-1/port-3
                 peer_dn = getattr(peer, "dn", "") or ""
                 parts = peer_dn.split("/")
                 leaf_name = parts[1] if len(parts) > 1 else peer_dn
                 leaf_port = getattr(peer, "port_id", "") or ""
-            links.append(common.TopologyLink(
-                nic_mac=mac,
-                leaf_name=leaf_name,
-                leaf_port=leaf_port,
-            ))
-        return links
+            links.append(common.TopologyLink(nic_mac=mac, leaf_name=leaf_name, leaf_port=leaf_port))
+        return nics, links
     except Exception as e:
-        log.debug("topology query failed for device %s: %s", device_moid, e)
-        return []
+        log.debug("nic/topology query failed for device %s: %s", device_moid, e)
+        return [], []
 
 
 def collect(client: ApiClient) -> list[common.DiscoveredFact]:
@@ -149,7 +148,7 @@ def collect(client: ApiClient) -> list[common.DiscoveredFact]:
 
             dmoid = _device_moid(s)
             storage = _storage_gib(client, dmoid)
-            topo = _topology(client, dmoid)
+            nics, topo = _nics_and_topology(client, dmoid)
 
             facts.append(common.DiscoveredFact(
                 service_tag=service_tag,
@@ -158,6 +157,7 @@ def collect(client: ApiClient) -> list[common.DiscoveredFact]:
                 cores=cores,
                 ram_gib=ram_gib,
                 storage_gib=storage,
+                nics=nics,
                 topology=topo,
             ))
         except Exception as e:

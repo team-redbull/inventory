@@ -107,6 +107,28 @@ def _sum_by_type(inventory: list[dict], inv_type: str) -> list[dict]:
     return []
 
 
+def _nics(inventory: list[dict]) -> list[common.NICInfo]:
+    """Extract NIC inventory from serverNetworkInterfaces.
+
+    LinkSpeed in OME is reported in Mbps as an integer or string.
+    """
+    result = []
+    for nic in _sum_by_type(inventory, "serverNetworkInterfaces"):
+        mac = nic.get("CurrentMacAddress") or nic.get("PermanentMacAddress", "")
+        if not mac:
+            continue
+        try:
+            speed = int(nic.get("LinkSpeed", 0) or 0)
+        except (ValueError, TypeError):
+            speed = 0
+        result.append(common.NICInfo(
+            mac=mac,
+            name=nic.get("NicId", ""),
+            speed_mbs=speed,
+        ))
+    return result
+
+
 def _topology(inventory: list[dict]) -> list[common.TopologyLink]:
     """Extract NIC-to-leaf links from iDRAC Connection View data in OME.
 
@@ -160,6 +182,7 @@ def _map(device: dict, inventory: list[dict]) -> common.DiscoveredFact:
         cores=cores,
         ram_gib=ram_gib,
         storage_gib=storage_gib,
+        nics=_nics(inventory),
         topology=_topology(inventory),
     )
 

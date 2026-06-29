@@ -86,6 +86,17 @@ CREATE TABLE IF NOT EXISTS host_spill_request (
 );
 CREATE INDEX IF NOT EXISTS idx_spill_class_mce ON host_spill_request (class, mce);
 
+-- NIC inventory. One row per physical NIC port.
+CREATE TABLE IF NOT EXISTS host_nics (
+    service_tag TEXT NOT NULL REFERENCES host_inventory(service_tag) ON DELETE CASCADE,
+    mac         TEXT NOT NULL,
+    name        TEXT,      -- vendor port name, e.g. NIC.Integrated.1-1-1 / eth0
+    speed_mbs   INT,       -- 1000 / 10000 / 25000 / 100000
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (service_tag, mac)
+);
+CREATE INDEX IF NOT EXISTS idx_nics_speed ON host_nics (speed_mbs);
+
 -- NIC-to-leaf topology. One row per NIC MAC. Sourced from BMC aggregators
 -- (OME iDRAC Connection View, Intersight fabric port mapping, UCS Central FI
 -- port data). Replaced wholesale per host on each collector run.

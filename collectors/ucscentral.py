@@ -60,16 +60,14 @@ def _storage_gib(handle: UcsCentralHandle, server_dn: str) -> int:
     return total_bytes // (1024 ** 3)
 
 
-def _topology(handle: UcsCentralHandle, server_dn: str) -> list[common.TopologyLink]:
-    """Extract NIC-to-FI-port mapping from UCS Central.
+def _nics_and_topology(handle: UcsCentralHandle, server_dn: str) -> tuple[list[common.NICInfo], list[common.TopologyLink]]:
+    """Extract NIC inventory and FI port mapping from adaptorExtEthIf objects.
 
-    adaptorExtEthIf objects represent the host-side Ethernet interfaces on a
-    UCS blade or rack adaptor. Each has a MAC address and a peer_dn pointing
-    at the connected FI (Fabric Interconnect) port. For blades the FI IS the
-    ToR gateway; for rack units managed via FEX the peer_dn references the FEX
-    downlink port. leaf_name is the top-level component of the peer DN (the FI
-    or FEX); leaf_port is the full peer DN for precise port identification.
+    adaptorExtEthIf represents host-side Ethernet interfaces on UCS blades and
+    rack adaptors. oper_speed is a string like "1gbps"/"10gbps"/"25gbps" —
+    parsed to Mbps. peer_dn points at the connected FI or FEX port.
     """
+    nics = []
     links = []
     try:
         ifaces = handle.query_children(in_dn=server_dn, class_id="adaptorExtEthIf")
@@ -77,18 +75,33 @@ def _topology(handle: UcsCentralHandle, server_dn: str) -> list[common.TopologyL
             mac = getattr(iface, "mac", "") or ""
             if not mac:
                 continue
+
+            name = getattr(iface, "dn", "").split("/")[-1]  # last DN component as port name
+            speed_str = (getattr(iface, "oper_speed", "") or "").lower()
+            speed_mbs = _parse_speed(speed_str)
+            nics.append(common.NICInfo(mac=mac, name=name, speed_mbs=speed_mbs))
+
             peer_dn = getattr(iface, "peer_dn", "") or ""
-            # peer_dn: sys/fex-B/slot-1/host-eth-3 or sys/switch-A/slot-1/port-5
             parts = peer_dn.split("/")
             leaf_name = parts[1] if len(parts) > 1 else ""
-            links.append(common.TopologyLink(
-                nic_mac=mac,
-                leaf_name=leaf_name,
-                leaf_port=peer_dn,
-            ))
+            links.append(common.TopologyLink(nic_mac=mac, leaf_name=leaf_name, leaf_port=peer_dn))
     except Exception as e:
-        log.debug("topology query failed for %s: %s", server_dn, e)
-    return links
+        log.debug("nic/topology query failed for %s: %s", server_dn, e)
+    return nics, links
+
+
+def _parse_speed(s: str) -> int:
+    """Convert UCS speed string ('1gbps', '10gbps', '25gbps') to Mbps int."""
+    s = s.replace("gbps", "").replace("mbps", "M").strip()
+    if s.endswith("M"):
+        try:
+            return int(s[:-1])
+        except ValueError:
+            return 0
+    try:
+        return int(float(s) * 1000)
+    except ValueError:
+        return 0
 
 
 def _map_server(handle: UcsCentralHandle, server) -> common.DiscoveredFact | None:
@@ -111,6 +124,7 @@ def _map_server(handle: UcsCentralHandle, server) -> common.DiscoveredFact | Non
         ram = int(getattr(server, "total_memory", 0) or 0) // 1024
         storage = 0
 
+    nics, topo = _nics_and_topology(handle, dn)
     return common.DiscoveredFact(
         service_tag=service_tag,
         vendor=vendor,
@@ -118,7 +132,8 @@ def _map_server(handle: UcsCentralHandle, server) -> common.DiscoveredFact | Non
         cores=cores,
         ram_gib=ram,
         storage_gib=storage,
-        topology=_topology(handle, dn),
+        nics=nics,
+        topology=topo,
     )
 
 
