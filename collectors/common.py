@@ -1,9 +1,9 @@
 """Shared Postgres writer and config helpers for all collectors.
 
 Python collectors write ONLY discovered hardware facts (vendor, model, cores,
-ram_gib, storage_gib). Declared fields (site, segment, class, bmc_address,
-bmc_type) are written by the Go projector reading the InventoryRecord spec and
-must not be overwritten here.
+ram_gib, storage_gib) and NIC-to-leaf topology. Declared fields (site, segment,
+class, bmc_address, bmc_type) are written by the Go projector reading the
+InventoryRecord spec and must not be overwritten here.
 """
 import logging
 import os
@@ -16,6 +16,14 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
+class TopologyLink:
+    nic_mac: str
+    leaf_name: str = ""
+    leaf_port: str = ""
+    leaf_mgmt: str = ""
+
+
+@dataclass
 class DiscoveredFact:
     service_tag: str
     vendor: str = ""
@@ -23,6 +31,7 @@ class DiscoveredFact:
     cores: int = 0
     ram_gib: int = 0
     storage_gib: int = 0
+    topology: list[TopologyLink] = field(default_factory=list)
 
 
 def pg_dsn() -> str:
@@ -65,13 +74,33 @@ def upsert(conn: psycopg.Connection, f: DiscoveredFact) -> None:
         },
     )
 
+    if f.topology:
+        _upsert_topology(conn, f.service_tag, f.topology)
+
+
+def _upsert_topology(conn: psycopg.Connection, service_tag: str, links: list[TopologyLink]) -> None:
+    """Replace all topology rows for this host atomically."""
+    conn.execute("DELETE FROM host_topology WHERE service_tag = %s", (service_tag,))
+    conn.executemany(
+        """
+        INSERT INTO host_topology (service_tag, nic_mac, leaf_name, leaf_port, leaf_mgmt, updated_at)
+        VALUES (%s, %s, %s, %s, %s, now())
+        """,
+        [
+            (service_tag, lnk.nic_mac, lnk.leaf_name or None, lnk.leaf_port or None, lnk.leaf_mgmt or None)
+            for lnk in links
+            if lnk.nic_mac
+        ],
+    )
+
 
 def flush(facts: list[DiscoveredFact], dsn: str) -> None:
-    """Write a batch of discovered facts in a single transaction."""
+    """Write a batch of discovered facts (+ topology) in a single transaction."""
     if not facts:
         return
     with psycopg.connect(dsn) as conn:
         for f in facts:
             upsert(conn, f)
         conn.commit()
-    log.info("flushed %d host facts", len(facts))
+    topo_count = sum(len(f.topology) for f in facts)
+    log.info("flushed %d host facts, %d topology links", len(facts), topo_count)

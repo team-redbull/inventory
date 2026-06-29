@@ -86,6 +86,20 @@ CREATE TABLE IF NOT EXISTS host_spill_request (
 );
 CREATE INDEX IF NOT EXISTS idx_spill_class_mce ON host_spill_request (class, mce);
 
+-- NIC-to-leaf topology. One row per NIC MAC. Sourced from BMC aggregators
+-- (OME iDRAC Connection View, Intersight fabric port mapping, UCS Central FI
+-- port data). Replaced wholesale per host on each collector run.
+CREATE TABLE IF NOT EXISTS host_topology (
+    service_tag TEXT NOT NULL REFERENCES host_inventory(service_tag) ON DELETE CASCADE,
+    nic_mac     TEXT NOT NULL,
+    leaf_name   TEXT,
+    leaf_port   TEXT,
+    leaf_mgmt   TEXT,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (service_tag, nic_mac)
+);
+CREATE INDEX IF NOT EXISTS idx_topo_leaf ON host_topology (leaf_name);
+
 -- Which provisioning segments each MCE serves. Authored config (one row per
 -- (mce, segment)). This is the data that answers "which MCE can adopt this host".
 CREATE TABLE IF NOT EXISTS mce_reach (

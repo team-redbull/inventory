@@ -60,6 +60,37 @@ def _storage_gib(handle: UcsCentralHandle, server_dn: str) -> int:
     return total_bytes // (1024 ** 3)
 
 
+def _topology(handle: UcsCentralHandle, server_dn: str) -> list[common.TopologyLink]:
+    """Extract NIC-to-FI-port mapping from UCS Central.
+
+    adaptorExtEthIf objects represent the host-side Ethernet interfaces on a
+    UCS blade or rack adaptor. Each has a MAC address and a peer_dn pointing
+    at the connected FI (Fabric Interconnect) port. For blades the FI IS the
+    ToR gateway; for rack units managed via FEX the peer_dn references the FEX
+    downlink port. leaf_name is the top-level component of the peer DN (the FI
+    or FEX); leaf_port is the full peer DN for precise port identification.
+    """
+    links = []
+    try:
+        ifaces = handle.query_children(in_dn=server_dn, class_id="adaptorExtEthIf")
+        for iface in ifaces:
+            mac = getattr(iface, "mac", "") or ""
+            if not mac:
+                continue
+            peer_dn = getattr(iface, "peer_dn", "") or ""
+            # peer_dn: sys/fex-B/slot-1/host-eth-3 or sys/switch-A/slot-1/port-5
+            parts = peer_dn.split("/")
+            leaf_name = parts[1] if len(parts) > 1 else ""
+            links.append(common.TopologyLink(
+                nic_mac=mac,
+                leaf_name=leaf_name,
+                leaf_port=peer_dn,
+            ))
+    except Exception as e:
+        log.debug("topology query failed for %s: %s", server_dn, e)
+    return links
+
+
 def _map_server(handle: UcsCentralHandle, server) -> common.DiscoveredFact | None:
     service_tag = getattr(server, "serial", "") or ""
     if not service_tag:
@@ -87,6 +118,7 @@ def _map_server(handle: UcsCentralHandle, server) -> common.DiscoveredFact | Non
         cores=cores,
         ram_gib=ram,
         storage_gib=storage,
+        topology=_topology(handle, dn),
     )
 
 

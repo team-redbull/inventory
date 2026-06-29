@@ -107,6 +107,37 @@ def _sum_by_type(inventory: list[dict], inv_type: str) -> list[dict]:
     return []
 
 
+def _topology(inventory: list[dict]) -> list[common.TopologyLink]:
+    """Extract NIC-to-leaf links from iDRAC Connection View data in OME.
+
+    OME surfaces LLDP neighbor info via the serverConnectedPortProfiles inventory
+    type when iDRAC Connection View is enabled. Falls back to NIC MAC-only entries
+    (no leaf info) from serverNetworkInterfaces when connection view is absent.
+    """
+    conn_profiles = _sum_by_type(inventory, "serverConnectedPortProfiles")
+    if conn_profiles:
+        links = []
+        for p in conn_profiles:
+            mac = p.get("MacAddress", "")
+            if not mac:
+                continue
+            links.append(common.TopologyLink(
+                nic_mac=mac,
+                leaf_name=p.get("RemoteDeviceName", ""),
+                leaf_port=p.get("RemotePortId", ""),
+                leaf_mgmt=p.get("RemoteManagementAddress", ""),
+            ))
+        return links
+
+    # Fallback: NIC MACs only, leaf info unknown
+    links = []
+    for nic in _sum_by_type(inventory, "serverNetworkInterfaces"):
+        mac = nic.get("CurrentMacAddress") or nic.get("PermanentMacAddress", "")
+        if mac:
+            links.append(common.TopologyLink(nic_mac=mac))
+    return links
+
+
 def _map(device: dict, inventory: list[dict]) -> common.DiscoveredFact:
     service_tag = device.get("DeviceServiceTag", "")
     vendor = "Dell"
@@ -129,6 +160,7 @@ def _map(device: dict, inventory: list[dict]) -> common.DiscoveredFact:
         cores=cores,
         ram_gib=ram_gib,
         storage_gib=storage_gib,
+        topology=_topology(inventory),
     )
 
 

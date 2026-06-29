@@ -16,7 +16,7 @@ import os
 import time
 
 import intersight
-from intersight.api import compute_api, storage_api
+from intersight.api import adapter_api, compute_api, storage_api
 from intersight.api_client import ApiClient
 from intersight.configuration import Configuration
 from intersight.signing import HttpSigningConfiguration
@@ -80,6 +80,48 @@ def _device_moid(server) -> str | None:
     return None
 
 
+def _topology(client: ApiClient, device_moid: str | None) -> list[common.TopologyLink]:
+    """Extract NIC MACs and fabric port mapping for an Intersight-managed server.
+
+    AdapterHostEthInterface gives per-NIC MACs. For FI-attached blades the
+    peer_interface MoRef resolves to the FI port; for standalone rack units
+    managed via IMM/Intersight the peer is the ToR switch port when LLDP is
+    enabled on the FI/IMM uplink. leaf_name is the peer DN component; leaf_port
+    is the port ID when available.
+    """
+    if not device_moid:
+        return []
+    try:
+        aapi = adapter_api.AdapterApi(client)
+        ifaces = _list_all(
+            aapi.get_adapter_host_eth_interface_list,
+            filter=f"RegisteredDevice.Moid eq '{device_moid}'",
+        )
+        links = []
+        for iface in ifaces:
+            mac = getattr(iface, "mac_address", "") or ""
+            if not mac:
+                continue
+            leaf_name = ""
+            leaf_port = ""
+            peer = getattr(iface, "peer_interface", None)
+            if peer:
+                # peer DN: sys/fex-101/slot-1/host-eth-1 or sys/switch-A/slot-1/port-3
+                peer_dn = getattr(peer, "dn", "") or ""
+                parts = peer_dn.split("/")
+                leaf_name = parts[1] if len(parts) > 1 else peer_dn
+                leaf_port = getattr(peer, "port_id", "") or ""
+            links.append(common.TopologyLink(
+                nic_mac=mac,
+                leaf_name=leaf_name,
+                leaf_port=leaf_port,
+            ))
+        return links
+    except Exception as e:
+        log.debug("topology query failed for device %s: %s", device_moid, e)
+        return []
+
+
 def collect(client: ApiClient) -> list[common.DiscoveredFact]:
     compute = compute_api.ComputeApi(client)
 
@@ -107,6 +149,7 @@ def collect(client: ApiClient) -> list[common.DiscoveredFact]:
 
             dmoid = _device_moid(s)
             storage = _storage_gib(client, dmoid)
+            topo = _topology(client, dmoid)
 
             facts.append(common.DiscoveredFact(
                 service_tag=service_tag,
@@ -115,6 +158,7 @@ def collect(client: ApiClient) -> list[common.DiscoveredFact]:
                 cores=cores,
                 ram_gib=ram_gib,
                 storage_gib=storage,
+                topology=topo,
             ))
         except Exception as e:
             log.warning("skipping server %s: %s", getattr(s, "serial", "?"), e)

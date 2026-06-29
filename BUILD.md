@@ -54,7 +54,8 @@ Type: **build** = you write it · **stock** = configure existing · **config** =
 
 ### 7. Collectors `[~]`
 - [x] Go: `Collector` interface + registry + `bmh` stub. `switchtopo` superseded.
-- [x] Python: `collectors/ome.py`, `collectors/cisco_intersight.py`, `collectors/ucscentral.py` — real implementations using vendor SDKs. Write directly to `host_inventory` (bypass Go seam).
+- [x] Python: `collectors/ome.py`, `collectors/cisco_intersight.py`, `collectors/ucscentral.py` — real implementations using vendor SDKs. Write directly to `host_inventory` + `host_topology` (bypass Go seam).
+- [x] **Topology scraping**: each Python collector extracts NIC-to-leaf links and writes to `host_topology`. OME uses `serverConnectedPortProfiles` (iDRAC Connection View, falls back to NIC MACs only). Intersight uses `AdapterHostEthInterface.peer_interface` (FI/IMM port DN). UCS Central uses `adaptorExtEthIf.peer_dn` (FI/FEX port DN).
 - [x] **Finish `bmh`** (Go): `MapHardwareDetails` exported from `pkg/inventory/bmh`; InventoryRecord reconciler calls `discoverFacts` on every reconcile — reads co-located BMH (same name+namespace), writes discovered facts directly to `store.UpsertHost` (not to IR status). Watches BMH changes to trigger IR reconcile. RBAC marker added.
 - [x] **OME session management**: store session ID from login response body; `disconnect()` issues `DELETE /api/SessionService/Sessions('{id}')` before reconnect (prevents session pool exhaustion on OME). Matches reference pattern from `dell_server_strategy.py`.
 - [x] **Finish `cisco_intersight.py`**: cores = `num_threads // 2` (logical→physical, HT assumed; falls back to socket count); storage via `storage_api.get_storage_physical_disk_list` filtered by `RegisteredDevice.Moid`.
